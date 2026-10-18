@@ -16,8 +16,8 @@ def load_sent_matches():
     return []
 
 def save_sent_matches(sent_list):
-    if len(sent_list) > 50:
-        sent_list = sent_list[-50:]
+    if len(sent_list) > 100:
+        sent_list = sent_list[-100:]
     with open(SENT_FILE, "w") as f:
         json.dump(sent_list, f)
 
@@ -104,10 +104,11 @@ def check_1xbet_live_matches():
             elif is_second_half:
                 second_half_matches.append(match_data)
 
+        # Şut sayısına göre en yüksekten en düşüğe sırala (Sınırlama yok, hepsi sıralanır)
         first_half_matches.sort(key=lambda x: x["total_shots"], reverse=True)
         second_half_matches.sort(key=lambda x: x["total_shots"], reverse=True)
 
-        return first_half_matches[:3], second_half_matches[:3]
+        return first_half_matches, second_half_matches
 
     except Exception as e:
         print(f"Hata: {e}")
@@ -124,7 +125,7 @@ def send_telegram():
         print("Gonderilecek yeni mac yok.")
         return
 
-    msg = "🔥 **1XBET YENİ KORNER FIRSATLARI** 🔥\n\n"
+    msg = "🔥 **1XBET KORNER FIRSATLARI** 🔥\n\n"
 
     if new_fh:
         msg += "📌 **1. YARI (35+ DK)**\n"
