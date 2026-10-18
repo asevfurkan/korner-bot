@@ -5,36 +5,42 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
 def check_1xbet_live_matches():
-    # Alternatif mobil ve direkt canlı feed endpoint'leri
+    # Engeli aşmak için genel açık API yansımaları (Mirror/Proxy endpointleri)
     urls = [
-        "https://1xbet.com/LiveFeed/GetMatchesZenY?sport=1&isNightMode=false",
-        "https://1xbet.com/LiveFeed/GetMatchesZenY?sport=1&lng=tr",
-        "https://1xbet.com/LiveFeed/GetMatches?sport=1"
+        "https://corsproxy.io/?https://1xbet.com/LiveFeed/GetMatchesZenY?sport=1&isNightMode=false",
+        "https://api.allorigins.win/raw?url=https://1xbet.com/LiveFeed/GetMatchesZenY?sport=1&isNightMode=false",
+        "https://1xbet.com/LiveFeed/GetMatchesZenY?sport=1&isNightMode=false"
     ]
     
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Referer': 'https://1xbet.com/tr/live/football',
-        'Origin': 'https://1xbet.com'
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
     }
 
     matches = []
     
     for url in urls:
         try:
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=15)
             if response.status_code == 200:
+                content = response.content
+                # Eğer allorigins veya corsproxy kullanıldıysa JSON içeriği metin gelebilir
                 data = response.json()
-                matches = data.get("Value", [])
+                if isinstance(data, dict):
+                    matches = data.get("Value", [])
+                elif isinstance(data, list):
+                    matches = data
+                
                 if matches:
-                    print(f"Başarılı endpoint: {url}")
+                    print(f"Basarili baglanti: {url}")
                     break
             else:
-                print(f"Endpoint hatası ({url}): Status {response.status_code}")
+                print(f"Deneme basarisiz ({url}): Status {response.status_code}")
         except Exception as e:
-            print(f"Bağlantı deneme hatası ({url}): {e}")
+            print(f"Hata ({url}): {e}")
 
     if not matches:
         return [], []
@@ -100,7 +106,7 @@ def send_telegram():
     fh_matches, sh_matches = check_1xbet_live_matches()
 
     if not fh_matches and not sh_matches:
-        print("Uygun kriterde maç bulunamadı.")
+        print("Uygun kriterde mac bulunamadi.")
         return
 
     msg = "🔥 1XBET CANLI KORNER / SUT FIRSATLARI 🔥\n\n"
