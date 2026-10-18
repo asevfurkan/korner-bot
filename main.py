@@ -5,7 +5,6 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
 def check_1xbet_live_matches():
-    # 1xbet Canlı API Adresi (Mobil API - Daha stabil ve engellere takılmaz)
     url = "https://1xbet.com/LiveFeed/GetMatchesZenY?sport=1&isNightMode=false"
     
     headers = {
@@ -16,15 +15,14 @@ def check_1xbet_live_matches():
 
     try:
         response = requests.get(url, headers=headers, timeout=15)
-        
         if response.status_code != 200:
-            print(f"API Hatasi: Status Code {response.status_code}")
-            return []
+            return [], []
             
         data = response.json()
         matches = data.get("Value", [])
 
-        valid_matches = []
+        first_half_matches = []
+        second_half_matches = []
 
         for m in matches:
             sc = m.get("SC", {})
@@ -32,22 +30,21 @@ def check_1xbet_live_matches():
             time_sec = sc.get("TS", 0)
             minute = time_sec // 60 if time_sec else 0
 
-            # Dakika Filtresi: 1. Yarı 35+ veya 2. Yarı 75+ (90+ dahil)
-            is_valid_time = (period == 1 and minute >= 35) or (period == 2 and minute >= 75)
-            if not is_valid_time:
+            # 1. Yarı 35+ dk VEYA 2. Yarı 75+ dk (80+ ve uzatmalar dahil)
+            is_first_half = (period == 1 and minute >= 35)
+            is_second_half = (period == 2 and minute >= 75)
+
+            if not (is_first_half or is_second_half):
                 continue
 
-            # Korner Bahsi Arama (Genişletilmiş Filtre)
+            # Korner Bahsi Arama
             has_corner_market = False
-            
-            # Market / Bahis seçeneklerini tara
             for sub in m.get("GE", []):
                 sub_str = str(sub).lower()
                 if "corner" in sub_str or "korner" in sub_str or sub.get("G") in [2, 28, 48]:
                     has_corner_market = True
                     break
 
-            # Alt etkinliklerde (SubEvents) korner araması
             if not has_corner_market:
                 for sub_event in m.get("AE", []):
                     event_name = str(sub_event.get("N", "")).lower()
@@ -55,11 +52,10 @@ def check_1xbet_live_matches():
                         has_corner_market = True
                         break
 
-            # Eğer korner bahsi AÇIK DEĞİLSE atla
             if not has_corner_market:
                 continue
 
-            # Şut ve Korner İstatistikleri
+            # İstatistikler
             stats = sc.get("S", [])
             shots_on = 0
             shots_off = 0
@@ -79,37 +75,57 @@ def check_1xbet_live_matches():
 
             total_shots = shots_on + shots_off
 
-            valid_matches.append({
+            match_data = {
                 "home": m.get("O1", "Ev"),
                 "away": m.get("O2", "Deplasman"),
                 "minute": minute,
                 "period": period,
                 "total_shots": total_shots,
                 "corners": corners
-            })
+            }
 
-        # Şuta göre sırala
-        valid_matches.sort(key=lambda x: x["total_shots"], reverse=True)
-        return valid_matches
+            if is_first_half:
+                first_half_matches.append(match_data)
+            elif is_second_half:
+                second_half_matches.append(match_data)
+
+        # Şuta göre azalandan artana sırala
+        first_half_matches.sort(key=lambda x: x["total_shots"], reverse=True)
+        second_half_matches.sort(key=lambda x: x["total_shots"], reverse=True)
+
+        # En şutlu 3'er maçı seç
+        return first_half_matches[:3], second_half_matches[:3]
 
     except Exception as e:
-        print(f"Genel Hata: {e}")
-        return []
+        print(f"Hata: {e}")
+        return [], []
 
 def send_telegram():
-    matches = check_1xbet_live_matches()
-    if not matches:
+    fh_matches, sh_matches = check_1xbet_live_matches()
+    
+    if not fh_matches and not sh_matches:
         print("Sartlara uyan mac bulunamadi.")
         return
 
     msg = "🔥 **1XBET KORNERİ AÇIK MAÇLAR** 🔥\n\n"
-    for m in matches[:5]:
-        per_text = "1. Yarı" if m["period"] == 1 else "2. Yarı"
-        msg += f"⚽ **{m['home']} vs {m['away']}**\n"
-        msg += f"⏱ Dk {m['minute']} ({per_text})\n"
-        msg += f"📊 Toplam Şut: {m['total_shots']} | Mevcut Korner: {m['corners']}\n"
-        msg += "✅ *Korner Bahsi Aktif*\n"
-        msg += "-----------------------------------\n"
+
+    # 1. Yarı Maçları
+    if fh_matches:
+        msg += "📌 **1. YARI MAÇLARI (35+ DK)**\n"
+        for m in fh_matches:
+            msg += f"⚽ **{m['home']} vs {m['away']}**\n"
+            msg += f"⏱ Dk {m['minute']}\n"
+            msg += f"📊 Toplam Şut: {m['total_shots']} | Korner: {m['corners']}\n"
+            msg += "-----------------------------------\n"
+
+    # 2. Yarı Maçları
+    if sh_matches:
+        msg += "\n📌 **2. YARI MAÇLARI (75+ DK / 80+ DK)**\n"
+        for m in sh_matches:
+            msg += f"⚽ **{m['home']} vs {m['away']}**\n"
+            msg += f"⏱ Dk {m['minute']}\n"
+            msg += f"📊 Toplam Şut: {m['total_shots']} | Korner: {m['corners']}\n"
+            msg += "-----------------------------------\n"
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
