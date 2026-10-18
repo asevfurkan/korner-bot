@@ -26,8 +26,7 @@ def check_1xbet_live_matches():
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7'
+        'Accept': 'application/json, text/plain, */*'
     }
 
     try:
@@ -47,32 +46,14 @@ def check_1xbet_live_matches():
             time_sec = sc.get("TS", 0)
             minute = time_sec // 60 if time_sec else 0
 
-            # 1. Yarı 35+ dk VEYA 2. Yarı (70+ dk, 80+, 90+ uzatmalar dahil)
+            # Dakika kontrolü (1. Yarı 35+ veya 2. Yarı her anı / uzatması)
             is_first_half = (period == 1 and minute >= 35)
-            is_second_half = (period == 2 and (minute >= 70 or minute == 0)) # Dakika 0 görünse bile 2. yarıdaysa kapsar
+            is_second_half = (period == 2 and (minute >= 70 or minute == 0 or minute >= 90))
 
             if not (is_first_half or is_second_half):
                 continue
 
-            # Korner Bahsi Arama (Genişletilmiş)
-            has_corner_market = False
-            for sub in m.get("GE", []):
-                sub_str = str(sub).lower()
-                if "corner" in sub_str or "korner" in sub_str or sub.get("G") in [2, 28, 48]:
-                    has_corner_market = True
-                    break
-
-            if not has_corner_market:
-                for sub_event in m.get("AE", []):
-                    event_name = str(sub_event.get("N", "")).lower()
-                    if "corner" in event_name or "korner" in event_name:
-                        has_corner_market = True
-                        break
-
-            # 1xbet bazen korneri doğrudan verir, eğer pazar kapalı görünmüyorsa dahil et
-            if not has_corner_market:
-                continue
-
+            # İstatistikleri tara (Şut ve Korner)
             stats = sc.get("S", [])
             shots_on = 0
             shots_off = 0
@@ -80,24 +61,26 @@ def check_1xbet_live_matches():
 
             for s in stats:
                 stat_name = str(s.get("N", "")).lower()
-                s1 = sum(s.get("S1", [0])) if isinstance(s.get("S1"), list) else 0
-                s2 = sum(s.get("S2", [0])) if isinstance(s.get("S2"), list) else 0
+                s1 = sum(s.get("S1", [0])) if isinstance(s.get("S1"), list) else (s.get("S1") if isinstance(s.get("S1"), int) else 0)
+                s2 = sum(s.get("S2", [0])) if isinstance(s.get("S2"), list) else (s.get("S2") if isinstance(s.get("S2"), int) else 0)
                 
-                if "shots on target" in stat_name or "isabetli" in stat_name:
+                if any(x in stat_name for x in ["shots on", "isabetli", "on target"]):
                     shots_on = s1 + s2
-                elif "shots off target" in stat_name or "isabetsiz" in stat_name:
+                elif any(x in stat_name for x in ["shots off", "isabetsiz", "off target"]):
                     shots_off = s1 + s2
-                elif "corners" in stat_name or "korner" in stat_name:
+                elif any(x in stat_name for x in ["corner", "korner"]):
                     corners = s1 + s2
 
             total_shots = shots_on + shots_off
+
+            # Dakika gösterimini ayarla
+            min_str = f"{minute}'" if minute > 0 else "90+'"
 
             match_data = {
                 "id": str(m.get("I", "")),
                 "home": m.get("O1", "Ev"),
                 "away": m.get("O2", "Deplasman"),
-                "minute": minute if minute > 0 else "90+",
-                "period": period,
+                "minute": min_str,
                 "total_shots": total_shots,
                 "corners": corners
             }
@@ -107,6 +90,7 @@ def check_1xbet_live_matches():
             elif is_second_half:
                 second_half_matches.append(match_data)
 
+        # Şut sayısına göre en yüksekten en düşüğe sırala
         first_half_matches.sort(key=lambda x: x["total_shots"], reverse=True)
         second_half_matches.sort(key=lambda x: x["total_shots"], reverse=True)
 
@@ -117,14 +101,6 @@ def check_1xbet_live_matches():
         return [], []
 
 def send_telegram():
-    # Telegram Bağlantı Testi (Sisteminizin çalıştığını doğrulamak için)
-    test_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    test_payload = {
-        "chat_id": CHAT_ID,
-        "text": "🤖 **BOT AKTİF VE TARAMA YAPIYOR!**\n\nTelegram bağlantın sorunsuz çalışıyor knk. Uygun maç yakalandığında altında listelenecek!",
-        "parse_mode": "Markdown"
-    }
-    
     fh_matches, sh_matches = check_1xbet_live_matches()
     sent_list = load_sent_matches()
 
@@ -132,18 +108,16 @@ def send_telegram():
     new_sh = [m for m in sh_matches if m["id"] not in sent_list]
 
     if not new_fh and not new_sh:
-        print("Gonderilecek yeni mac yok ama test mesaji gonderiliyor.")
-        # Sadece test amaçlı botun çalıştığını hissettirmek için mesaj gönder
-        requests.post(test_url, json=test_payload)
+        print("Gonderilecek yeni mac yok.")
         return
 
-    msg = "🔥 **1XBET KORNER FIRSATLARI** 🔥\n\n"
+    msg = "🔥 **1XBET CANLI KORNER / ŞUT FIRSATLARI** 🔥\n\n"
 
     if new_fh:
         msg += "📌 **1. YARI (35+ DK)**\n"
         for m in new_fh:
             msg += f"⚽ **{m['home']} vs {m['away']}**\n"
-            msg += f"⏱ Dk {m['minute']} | Şut: {m['total_shots']} | Korner: {m['corners']}\n"
+            msg += f"⏱ Dk: {m['minute']} | Şut: {m['total_shots']} | Korner: {m['corners']}\n"
             msg += "-----------------------------------\n"
             sent_list.append(m["id"])
 
@@ -151,17 +125,18 @@ def send_telegram():
         msg += "\n📌 **2. YARI (70+ / UZATMALAR)**\n"
         for m in new_sh:
             msg += f"⚽ **{m['home']} vs {m['away']}**\n"
-            msg += f"⏱ Dk {m['minute']} | Şut: {m['total_shots']} | Korner: {m['corners']}\n"
+            msg += f"⏱ Dk: {m['minute']} | Şut: {m['total_shots']} | Korner: {m['corners']}\n"
             msg += "-----------------------------------\n"
             sent_list.append(m["id"])
 
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
         "text": msg,
         "parse_mode": "Markdown"
     }
     
-    res = requests.post(test_url, json=payload)
+    res = requests.post(url, json=payload)
     if res.status_code == 200:
         save_sent_matches(sent_list)
 
