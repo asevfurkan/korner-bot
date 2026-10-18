@@ -1,25 +1,8 @@
 import os
 import requests
-import json
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
-SENT_FILE = "sent_matches.json"
-
-def load_sent_matches():
-    if os.path.exists(SENT_FILE):
-        try:
-            with open(SENT_FILE, "r") as f:
-                return json.load(f)
-        except:
-            return []
-    return []
-
-def save_sent_matches(sent_list):
-    if len(sent_list) > 100:
-        sent_list = sent_list[-100:]
-    with open(SENT_FILE, "w") as f:
-        json.dump(sent_list, f)
 
 def check_1xbet_live_matches():
     url = "https://1xbet.com/LiveFeed/GetMatchesZenY?sport=1&isNightMode=false"
@@ -32,6 +15,7 @@ def check_1xbet_live_matches():
     try:
         response = requests.get(url, headers=headers, timeout=15)
         if response.status_code != 200:
+            print(f"1xbet Baglanti Hatasi Status Code: {response.status_code}")
             return [], []
             
         data = response.json()
@@ -46,14 +30,12 @@ def check_1xbet_live_matches():
             time_sec = sc.get("TS", 0)
             minute = time_sec // 60 if time_sec else 0
 
-            # Dakika kontrolü (1. Yarı 35+ veya 2. Yarı her anı / uzatması)
             is_first_half = (period == 1 and minute >= 35)
             is_second_half = (period == 2 and (minute >= 70 or minute == 0 or minute >= 90))
 
             if not (is_first_half or is_second_half):
                 continue
 
-            # İstatistikleri tara (Şut ve Korner)
             stats = sc.get("S", [])
             shots_on = 0
             shots_off = 0
@@ -64,22 +46,23 @@ def check_1xbet_live_matches():
                 s1 = sum(s.get("S1", [0])) if isinstance(s.get("S1"), list) else (s.get("S1") if isinstance(s.get("S1"), int) else 0)
                 s2 = sum(s.get("S2", [0])) if isinstance(s.get("S2"), list) else (s.get("S2") if isinstance(s.get("S2"), int) else 0)
                 
-                if any(x in stat_name for x in ["shots on", "isabetli", "on target"]):
+                if "shots on" in stat_name or "isabetli" in stat_name:
                     shots_on = s1 + s2
-                elif any(x in stat_name for x in ["shots off", "isabetsiz", "off target"]):
+                elif "shots off" in stat_name or "isabetsiz" in stat_name:
                     shots_off = s1 + s2
-                elif any(x in stat_name for x in ["corner", "korner"]):
+                elif "corner" in stat_name or "korner" in stat_name:
                     corners = s1 + s2
 
             total_shots = shots_on + shots_off
-
-            # Dakika gösterimini ayarla
             min_str = f"{minute}'" if minute > 0 else "90+'"
+
+            home_team = str(m.get("O1", "Ev")).replace("*", "").replace("_", "")
+            away_team = str(m.get("O2", "Deplasman")).replace("*", "").replace("_", "")
 
             match_data = {
                 "id": str(m.get("I", "")),
-                "home": m.get("O1", "Ev"),
-                "away": m.get("O2", "Deplasman"),
+                "home": home_team,
+                "away": away_team,
                 "minute": min_str,
                 "total_shots": total_shots,
                 "corners": corners
@@ -90,55 +73,47 @@ def check_1xbet_live_matches():
             elif is_second_half:
                 second_half_matches.append(match_data)
 
-        # Şut sayısına göre en yüksekten en düşüğe sırala
         first_half_matches.sort(key=lambda x: x["total_shots"], reverse=True)
         second_half_matches.sort(key=lambda x: x["total_shots"], reverse=True)
 
         return first_half_matches, second_half_matches
 
     except Exception as e:
-        print(f"Hata: {e}")
+        print(f"Veri Cekme Hatasi: {e}")
         return [], []
 
 def send_telegram():
     fh_matches, sh_matches = check_1xbet_live_matches()
-    sent_list = load_sent_matches()
 
-    new_fh = [m for m in fh_matches if m["id"] not in sent_list]
-    new_sh = [m for m in sh_matches if m["id"] not in sent_list]
-
-    if not new_fh and not new_sh:
-        print("Gonderilecek yeni mac yok.")
+    if not fh_matches and not sh_matches:
+        print("Uygun kriterde mac bulunamadi.")
         return
 
-    msg = "🔥 **1XBET CANLI KORNER / ŞUT FIRSATLARI** 🔥\n\n"
+    msg = "🔥 1XBET CANLI KORNER / SUT FIRSATLARI 🔥\n\n"
 
-    if new_fh:
-        msg += "📌 **1. YARI (35+ DK)**\n"
-        for m in new_fh:
-            msg += f"⚽ **{m['home']} vs {m['away']}**\n"
-            msg += f"⏱ Dk: {m['minute']} | Şut: {m['total_shots']} | Korner: {m['corners']}\n"
+    if fh_matches:
+        msg += "📌 1. YARI (35+ DK)\n"
+        for m in fh_matches:
+            msg += f"⚽ {m['home']} vs {m['away']}\n"
+            msg += f"⏱ Dk: {m['minute']} | Sut: {m['total_shots']} | Korner: {m['corners']}\n"
             msg += "-----------------------------------\n"
-            sent_list.append(m["id"])
 
-    if new_sh:
-        msg += "\n📌 **2. YARI (70+ / UZATMALAR)**\n"
-        for m in new_sh:
-            msg += f"⚽ **{m['home']} vs {m['away']}**\n"
-            msg += f"⏱ Dk: {m['minute']} | Şut: {m['total_shots']} | Korner: {m['corners']}\n"
+    if sh_matches:
+        msg += "\n📌 2. YARI (70+ / UZATMALAR)\n"
+        for m in sh_matches:
+            msg += f"⚽ {m['home']} vs {m['away']}\n"
+            msg += f"⏱ Dk: {m['minute']} | Sut: {m['total_shots']} | Korner: {m['corners']}\n"
             msg += "-----------------------------------\n"
-            sent_list.append(m["id"])
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
-        "text": msg,
-        "parse_mode": "Markdown"
+        "text": msg
     }
     
     res = requests.post(url, json=payload)
-    if res.status_code == 200:
-        save_sent_matches(sent_list)
+    print(f"Telegram API Yanit Kodu: {res.status_code}")
+    print(f"Telegram API Yaniti: {res.text}")
 
 if __name__ == "__main__":
     send_telegram()
