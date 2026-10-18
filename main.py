@@ -1,8 +1,25 @@
 import os
 import requests
+import json
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
+SENT_FILE = "sent_matches.json"
+
+def load_sent_matches():
+    if os.path.exists(SENT_FILE):
+        try:
+            with open(SENT_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return []
+    return []
+
+def save_sent_matches(sent_list):
+    if len(sent_list) > 50:
+        sent_list = sent_list[-50:]
+    with open(SENT_FILE, "w") as f:
+        json.dump(sent_list, f)
 
 def check_1xbet_live_matches():
     url = "https://1xbet.com/LiveFeed/GetMatchesZenY?sport=1&isNightMode=false"
@@ -26,18 +43,16 @@ def check_1xbet_live_matches():
 
         for m in matches:
             sc = m.get("SC", {})
-            period = sc.get("CP", 0)  # 1: 1. Yarı, 2: 2. Yarı
+            period = sc.get("CP", 0)  
             time_sec = sc.get("TS", 0)
             minute = time_sec // 60 if time_sec else 0
 
-            # 1. Yarı 35+ dk VEYA 2. Yarı 75+ dk (80+ ve uzatmalar dahil)
             is_first_half = (period == 1 and minute >= 35)
             is_second_half = (period == 2 and minute >= 75)
 
             if not (is_first_half or is_second_half):
                 continue
 
-            # Korner Bahsi Arama
             has_corner_market = False
             for sub in m.get("GE", []):
                 sub_str = str(sub).lower()
@@ -55,7 +70,6 @@ def check_1xbet_live_matches():
             if not has_corner_market:
                 continue
 
-            # İstatistikler
             stats = sc.get("S", [])
             shots_on = 0
             shots_off = 0
@@ -76,6 +90,7 @@ def check_1xbet_live_matches():
             total_shots = shots_on + shots_off
 
             match_data = {
+                "id": str(m.get("I", "")),
                 "home": m.get("O1", "Ev"),
                 "away": m.get("O2", "Deplasman"),
                 "minute": minute,
@@ -89,11 +104,9 @@ def check_1xbet_live_matches():
             elif is_second_half:
                 second_half_matches.append(match_data)
 
-        # Şuta göre azalandan artana sırala
         first_half_matches.sort(key=lambda x: x["total_shots"], reverse=True)
         second_half_matches.sort(key=lambda x: x["total_shots"], reverse=True)
 
-        # En şutlu 3'er maçı seç
         return first_half_matches[:3], second_half_matches[:3]
 
     except Exception as e:
@@ -102,30 +115,32 @@ def check_1xbet_live_matches():
 
 def send_telegram():
     fh_matches, sh_matches = check_1xbet_live_matches()
-    
-    if not fh_matches and not sh_matches:
-        print("Sartlara uyan mac bulunamadi.")
+    sent_list = load_sent_matches()
+
+    new_fh = [m for m in fh_matches if m["id"] not in sent_list]
+    new_sh = [m for m in sh_matches if m["id"] not in sent_list]
+
+    if not new_fh and not new_sh:
+        print("Gonderilecek yeni mac yok.")
         return
 
-    msg = "🔥 **1XBET KORNERİ AÇIK MAÇLAR** 🔥\n\n"
+    msg = "🔥 **1XBET YENİ KORNER FIRSATLARI** 🔥\n\n"
 
-    # 1. Yarı Maçları
-    if fh_matches:
-        msg += "📌 **1. YARI MAÇLARI (35+ DK)**\n"
-        for m in fh_matches:
+    if new_fh:
+        msg += "📌 **1. YARI (35+ DK)**\n"
+        for m in new_fh:
             msg += f"⚽ **{m['home']} vs {m['away']}**\n"
-            msg += f"⏱ Dk {m['minute']}\n"
-            msg += f"📊 Toplam Şut: {m['total_shots']} | Korner: {m['corners']}\n"
+            msg += f"⏱ Dk {m['minute']} | Şut: {m['total_shots']} | Korner: {m['corners']}\n"
             msg += "-----------------------------------\n"
+            sent_list.append(m["id"])
 
-    # 2. Yarı Maçları
-    if sh_matches:
-        msg += "\n📌 **2. YARI MAÇLARI (75+ DK / 80+ DK)**\n"
-        for m in sh_matches:
+    if new_sh:
+        msg += "\n📌 **2. YARI (75+ DK)**\n"
+        for m in new_sh:
             msg += f"⚽ **{m['home']} vs {m['away']}**\n"
-            msg += f"⏱ Dk {m['minute']}\n"
-            msg += f"📊 Toplam Şut: {m['total_shots']} | Korner: {m['corners']}\n"
+            msg += f"⏱ Dk {m['minute']} | Şut: {m['total_shots']} | Korner: {m['corners']}\n"
             msg += "-----------------------------------\n"
+            sent_list.append(m["id"])
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
@@ -133,7 +148,10 @@ def send_telegram():
         "text": msg,
         "parse_mode": "Markdown"
     }
-    requests.post(url, json=payload)
+    
+    res = requests.post(url, json=payload)
+    if res.status_code == 200:
+        save_sent_matches(sent_list)
 
 if __name__ == "__main__":
     send_telegram()
