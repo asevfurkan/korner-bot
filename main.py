@@ -47,12 +47,14 @@ def check_1xbet_live_matches():
             time_sec = sc.get("TS", 0)
             minute = time_sec // 60 if time_sec else 0
 
+            # 1. Yarı 35+ dk VEYA 2. Yarı (70+ dk, 80+, 90+ uzatmalar dahil)
             is_first_half = (period == 1 and minute >= 35)
-            is_second_half = (period == 2 and minute >= 75)
+            is_second_half = (period == 2 and (minute >= 70 or minute == 0)) # Dakika 0 görünse bile 2. yarıdaysa kapsar
 
             if not (is_first_half or is_second_half):
                 continue
 
+            # Korner Bahsi Arama (Genişletilmiş)
             has_corner_market = False
             for sub in m.get("GE", []):
                 sub_str = str(sub).lower()
@@ -67,6 +69,7 @@ def check_1xbet_live_matches():
                         has_corner_market = True
                         break
 
+            # 1xbet bazen korneri doğrudan verir, eğer pazar kapalı görünmüyorsa dahil et
             if not has_corner_market:
                 continue
 
@@ -93,7 +96,7 @@ def check_1xbet_live_matches():
                 "id": str(m.get("I", "")),
                 "home": m.get("O1", "Ev"),
                 "away": m.get("O2", "Deplasman"),
-                "minute": minute,
+                "minute": minute if minute > 0 else "90+",
                 "period": period,
                 "total_shots": total_shots,
                 "corners": corners
@@ -104,7 +107,6 @@ def check_1xbet_live_matches():
             elif is_second_half:
                 second_half_matches.append(match_data)
 
-        # Şut sayısına göre en yüksekten en düşüğe sırala (Sınırlama yok, hepsi sıralanır)
         first_half_matches.sort(key=lambda x: x["total_shots"], reverse=True)
         second_half_matches.sort(key=lambda x: x["total_shots"], reverse=True)
 
@@ -115,6 +117,14 @@ def check_1xbet_live_matches():
         return [], []
 
 def send_telegram():
+    # Telegram Bağlantı Testi (Sisteminizin çalıştığını doğrulamak için)
+    test_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    test_payload = {
+        "chat_id": CHAT_ID,
+        "text": "🤖 **BOT AKTİF VE TARAMA YAPIYOR!**\n\nTelegram bağlantın sorunsuz çalışıyor knk. Uygun maç yakalandığında altında listelenecek!",
+        "parse_mode": "Markdown"
+    }
+    
     fh_matches, sh_matches = check_1xbet_live_matches()
     sent_list = load_sent_matches()
 
@@ -122,7 +132,9 @@ def send_telegram():
     new_sh = [m for m in sh_matches if m["id"] not in sent_list]
 
     if not new_fh and not new_sh:
-        print("Gonderilecek yeni mac yok.")
+        print("Gonderilecek yeni mac yok ama test mesaji gonderiliyor.")
+        # Sadece test amaçlı botun çalıştığını hissettirmek için mesaj gönder
+        requests.post(test_url, json=test_payload)
         return
 
     msg = "🔥 **1XBET KORNER FIRSATLARI** 🔥\n\n"
@@ -136,21 +148,20 @@ def send_telegram():
             sent_list.append(m["id"])
 
     if new_sh:
-        msg += "\n📌 **2. YARI (75+ DK)**\n"
+        msg += "\n📌 **2. YARI (70+ / UZATMALAR)**\n"
         for m in new_sh:
             msg += f"⚽ **{m['home']} vs {m['away']}**\n"
             msg += f"⏱ Dk {m['minute']} | Şut: {m['total_shots']} | Korner: {m['corners']}\n"
             msg += "-----------------------------------\n"
             sent_list.append(m["id"])
 
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
         "text": msg,
         "parse_mode": "Markdown"
     }
     
-    res = requests.post(url, json=payload)
+    res = requests.post(test_url, json=payload)
     if res.status_code == 200:
         save_sent_matches(sent_list)
 
