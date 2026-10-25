@@ -35,6 +35,23 @@ def check_matches():
       home = match["teams"]["home"]["name"]
       away = match["teams"]["away"]["name"]
       minute = match["fixture"]["status"]["elapsed"]
+      status_short = match["fixture"]["status"]["short"]
+
+      # Dakika bilgisi yoksa veya None ise atla
+      if minute is None:
+        continue
+
+      # Dakika ve devre filtrelemesi:
+      # - 1. Devre (1H): Dakika 35 ve üzeri
+      # - 2. Devre (2H): Dakika 80 ve üzeri
+      is_valid_time = False
+      if status_short == "1H" and minute >= 35:
+        is_valid_time = True
+      elif status_short == "2H" and minute >= 80:
+        is_valid_time = True
+
+      if not is_valid_time:
+        continue
 
       # Anlık istatistikleri çek
       stat_url = (
@@ -60,14 +77,14 @@ def check_matches():
       total_corners = corners[home] + corners[away]
       total_shots = shots[home] + shots[away]
 
-      # Sıralama için skor hesabı (Örn: Kornerin ağırlığı fazla olsun ya da toplamı)
-      # Şut ve korneri birlikte önceliklendiren bir puanlama formülü
+      # Hareketlilik puanı (Korner ve şut öncelikli)
       score = (total_corners * 2) + total_shots
 
       match_list.append({
           "home": home,
           "away": away,
           "minute": minute,
+          "half": status_short,
           "corners": total_corners,
           "home_c": corners[home],
           "away_c": corners[away],
@@ -77,17 +94,21 @@ def check_matches():
           "score": score,
       })
 
-    # En yüksek skora (en çok korner ve şut) göre maçları büyükten küçüğe sırala
+    # Skora göre büyükten küçüğe sırala
     match_list.sort(key=lambda x: x["score"], reverse=True)
 
-    # En hareketli ilk 3 maçı seç
+    # En hareketli ilk 3 maçı al
     top_matches = match_list[:3]
 
     if top_matches:
-      msg = "🔥 *Canlı En Hareketli Maçlar (Korner & Şut Öncelikli)* 🔥\n\n"
+      msg = (
+          "🔥 *Kritik Dakika Hareketli Maçlar (Korner & Şut)* 🔥\n"
+          "(1. Devre 35'+ / 2. Devre 80'+)\n\n"
+      )
       for i, m in enumerate(top_matches, 1):
         msg += (
-            f"*{i}. {m['home']} vs {m['away']}* (Dakika: {m['minute']}')\n"
+            f"*{i}. {m['home']} vs {m['away']}* ({m['half']} - Dakika:"
+            f" {m['minute']}')\n"
             f"   🔹 Toplam Korner: {m['corners']} ({m['home_c']} -"
             f" {m['away_c']})\n"
             f"   🔸 Toplam Şut: {m['shots']} ({m['home_s']} - {m['away_s']})\n\n"
@@ -98,5 +119,5 @@ def check_matches():
     print(f"Hata oluştu: {e}")
 
 
-print("Akıllı maç takip botu çalışmaya başladı...")
+print("Kritik dakika takip botu çalışmaya başladı...")
 check_matches()
