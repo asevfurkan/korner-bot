@@ -2,8 +2,8 @@ name: Korner Bot
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # Her 5 dakikada bir çalışır
-  workflow_dispatch: # Elle tetiklemeye izin verir
+    - cron: '*/2 * * * *'  # Her 2 dakikada bir çalışır
+  workflow_dispatch:
 
 jobs:
   run-bot:
