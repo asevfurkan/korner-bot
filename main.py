@@ -17,7 +17,7 @@ def send_telegram_message(message):
 
 
 def check_matches():
-  url = "https://v3.football.api-sports.io/fixtures?live=all"
+  url = "https://v3.football.api-scripts.io/fixtures?live=all"
   headers = {"x-apisports-key": API_KEY}
 
   try:
@@ -37,13 +37,10 @@ def check_matches():
       minute = match["fixture"]["status"]["elapsed"]
       status_short = match["fixture"]["status"]["short"]
 
-      # Dakika bilgisi yoksa veya None ise atla
       if minute is None:
         continue
 
-      # Dakika ve devre filtrelemesi:
-      # - 1. Devre (1H): Dakika 35 ve üzeri
-      # - 2. Devre (2H): Dakika 80 ve üzeri
+      # 1. Devre 35'+ veya 2. Devre 80'+ filtrelemesi
       is_valid_time = False
       if status_short == "1H" and minute >= 35:
         is_valid_time = True
@@ -53,7 +50,7 @@ def check_matches():
       if not is_valid_time:
         continue
 
-      # Anlık istatistikleri çek
+      # İstatistikleri çek
       stat_url = (
           f"https://v3.football.api-sports.io/fixtures/statistics?fixture="
           f"{fixture_id}"
@@ -77,10 +74,11 @@ def check_matches():
       total_corners = corners[home] + corners[away]
       total_shots = shots[home] + shots[away]
 
-      # Hareketlilik puanı (Korner ve şut öncelikli)
+      # Hareketlilik puanı (Korner * 2 + Şut)
       score = (total_corners * 2) + total_shots
 
       match_list.append({
+          "id": fixture_id,
           "home": home,
           "away": away,
           "minute": minute,
@@ -94,15 +92,13 @@ def check_matches():
           "score": score,
       })
 
-    # Skora göre büyükten küçüğe sırala
+    # En yüksek puana göre sırala ve ilk 3'ü al
     match_list.sort(key=lambda x: x["score"], reverse=True)
-
-    # En hareketli ilk 3 maçı al
     top_matches = match_list[:3]
 
     if top_matches:
       msg = (
-          "🔥 *Kritik Dakika Hareketli Maçlar (Korner & Şut)* 🔥\n"
+          "🔥 *Kritik Dakika Hareketli Maçlar* 🔥\n"
           "(1. Devre 35'+ / 2. Devre 80'+)\n\n"
       )
       for i, m in enumerate(top_matches, 1):
@@ -119,5 +115,5 @@ def check_matches():
     print(f"Hata oluştu: {e}")
 
 
-print("Kritik dakika takip botu çalışmaya başladı...")
+print("Hızlı takip botu çalışmaya başladı...")
 check_matches()
