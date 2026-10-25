@@ -2,7 +2,42 @@ name: Korner Bot
 
 on:
   schedule:
-    - cron: '*/2 * * * *'  # Her 2 dakikada bir çalışır
+    # --- SABAH 10:00 MAÇLARI ---
+    - cron: '35 7 * * *'   # 10:35 (1. Devre 35') -> UTC 07:35
+    - cron: '22 9 * * *'   # 12:22 (2. Devre 82') -> UTC 09:22
+
+    # --- SABAH 11:00 MAÇLARI ---
+    - cron: '35 8 * * *'   # 11:35 (1. Devre 35') -> UTC 08:35
+    - cron: '22 10 * * *'  # 13:22 (2. Devre 82') -> UTC 10:22
+
+    # --- ÖĞLE 13:00 MAÇLARI ---
+    - cron: '35 10 * * *'  # 13:35 (1. Devre 35') -> UTC 10:35
+    - cron: '22 12 * * *'  # 15:22 (2. Devre 82') -> UTC 12:22
+
+    # --- ÖĞLEDEN SONRA 15:00 MAÇLARI ---
+    - cron: '35 12 * * *'  # 15:35 (1. Devre 35') -> UTC 12:35
+    - cron: '22 14 * * *'  # 17:22 (2. Devre 82') -> UTC 14:22
+
+    # --- 17:30 MAÇLARI (Özellikle istediğin kritik kuşak) ---
+    - cron: '05 15 * * *'  # 18:05 (1. Devre 35') -> UTC 15:05
+    - cron: '52 16 * * *'  # 19:52 (2. Devre 82') -> UTC 16:52
+
+    # --- AKŞAM 19:00 MAÇLARI ---
+    - cron: '35 16 * * *'  # 19:35 (1. Devre 35') -> UTC 16:35
+    - cron: '22 18 * * *'  # 21:22 (2. Devre 82') -> UTC 18:22
+
+    # --- AKŞAM 20:00 MAÇLARI ---
+    - cron: '35 17 * * *'  # 20:35 (1. Devre 35') -> UTC 17:35
+    - cron: '22 19 * * *'  # 22:22 (2. Devre 82') -> UTC 19:22
+
+    # --- GECE 21:00 / 22:00 MAÇLARI (Şampiyonlar Ligi vb.) ---
+    - cron: '35 19 * * *'  # 22:35 (1. Devre 35') -> UTC 19:35
+    - cron: '22 21 * * *'  # 00:22 (2. Devre 82') -> UTC 21:22
+
+    # --- GECE 23:00 MAÇLARI ---
+    - cron: '35 20 * * *'  # 23:35 (1. Devre 35') -> UTC 20:35
+    - cron: '22 22 * * *'  # 01:22 (2. Devre 82') -> UTC 22:22
+
   workflow_dispatch:
 
 jobs:
