@@ -2,7 +2,7 @@ import os
 import time
 import requests
 
-# GitHub'daki secret isimlerine göre güncellendi
+# GitHub'daki secret isimlerine göre ayarlandı
 API_KEY = os.environ.get("API_FOOTBALL_KEY")
 TELEGRAM_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
@@ -35,6 +35,7 @@ def check_corners():
       away = match["teams"]["away"]["name"]
       minute = match["fixture"]["status"]["elapsed"]
 
+      # Maçın anlık istatistiklerini çekiyoruz
       stat_url = (
           f"https://v3.football.api-sports.io/fixtures/statistics?fixture="
           f"{fixture_id}"
@@ -43,20 +44,30 @@ def check_corners():
       stat_data = stat_resp.json()
 
       corners = {home: 0, away: 0}
+      shots = {home: 0, away: 0}
+
       for team_stat in stat_data.get("response", []):
         team_name = team_stat["team"]["name"]
         for s in team_stat["statistics"]:
           if s["type"] == "Corner Kicks":
             val = s["value"]
             corners[team_name] = int(val) if val is not None else 0
+          elif s["type"] == "Total Shots":
+            val = s["value"]
+            shots[team_name] = int(val) if val is not None else 0
 
       total_corners = corners[home] + corners[away]
+      total_shots = shots[home] + shots[away]
 
+      # Kriter: Toplam korner 8 veya üzeriyse bildirim gönder
       if total_corners >= 8:
         msg = (
-            f"⚽ *Korner Alarmı!*\n{home} vs {away} (Dakika: {minute}')\nToplam"
-            f" Korner: {total_corners}\n({home}: {corners[home]} - {away}:"
-            f" {corners[away]})"
+            f"⚽ *Korner & Şut Alarmı!*\n"
+            f"{home} vs {away} (Dakika: {minute}')\n\n"
+            f"🔹 *Toplam Korner:* {total_corners} "
+            f"({home}: {corners[home]} - {away}: {corners[away]})\n"
+            f"🔸 *Toplam Şut:* {total_shots} "
+            f"({home}: {shots[home]} - {away}: {shots[away]})"
         )
         send_telegram_message(msg)
 
@@ -64,9 +75,5 @@ def check_corners():
     print(f"Hata oluştu: {e}")
 
 
-print("Korner takip botu çalışmaya başladı...")
-
-
-# GitHub Actions üzerinde çalışması için tek seferlik kontrol yeterlidir.
-# (Actions workflow dosyasında zamanlama ayarlandığı için burada döngüye gerek yoktur.)
+print("Korner ve şut takip botu çalışmaya başladı...")
 check_corners()
