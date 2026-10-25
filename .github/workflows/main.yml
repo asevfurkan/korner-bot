@@ -2,35 +2,30 @@ name: Korner Bot
 
 on:
   schedule:
-    # --- SABAH KUŞAĞI (Asya / Japonya vb. :00 ve :30başlangıçlar) ---
-    - cron: '35 7 * * *'   # 10:35 (10:00 maçının 35. dk)
-    - cron: '05 9 * * *'   # 11:35 (10:30 maçının 35. dk)
-    - cron: '22 9 * * *'   # 12:22 (11:00 maçının 82. dk)
-    - cron: '52 10 * * *'  # 13:52 (12:00 maçının 82. dk / 11:30 maçının 82. dk)
+    # --- SABAH VE ÖĞLE KUŞAĞI ---
+    - cron: '34,35,36 7 * * *'   # 10:35 civarı
+    - cron: '21,22,23 9 * * *'   # 12:22 civarı
+    - cron: '34,35,36 8 * * *'   # 11:35 civarı
+    - cron: '21,22,23 10 * * *'  # 13:22 civarı
+    - cron: '34,35,36 10 * * *'  # 13:35 civarı
+    - cron: '21,22,23 12 * * *'  # 15:22 civarı
+    - cron: '34,35,36 12 * * *'  # 15:35 civarı
+    - cron: '21,22,23 14 * * *'  # 17:22 civarı
 
-    # --- ÖĞLE / İKİNDİ KUŞAĞI ---
-    - cron: '35 10 * * *'  # 13:35 (13:00 maçının 35. dk)
-    - cron: '05 12 * * *'  # 15:05 (14:00 maçının 35. dk)
-    - cron: '22 12 * * *'  # 15:22 (14:00 maçının 82. dk)
-    - cron: '35 12 * * *'  # 15:35 (15:00 maçının 35. dk)
-    - cron: '52 13 * * *'  # 16:52 (16:00 maçının 82. dk)
+    # --- 17:30 VE AKŞAM ÜSTÜ KUŞAĞI ---
+    - cron: '04,05,06 15 * * *'  # 18:05 civarı
+    - cron: '51,52,53 16 * * *'  # 19:52 civarı
+    - cron: '34,35,36 16 * * *'  # 19:35 civarı
+    - cron: '21,22,23 18 * * *'  # 21:22 civarı
 
-    # --- 17:30 KUŞAĞI VE AKŞAM ÜSTÜ ---
-    - cron: '05 15 * * *'  # 18:05 (17:30 maçının 35. dk)
-    - cron: '35 16 * * *'  # 19:35 (19:00 maçının 35. dk)
-    - cron: '52 16 * * *'  # 19:52 (18:30 maçının 82. dk)
-    - cron: '22 18 * * *'  # 21:22 (20:00 maçının 82. dk)
-
-    # --- AKŞAM VE GECE KUŞAĞI (Şampiyonlar Ligi / Büyük Ligler) ---
-    - cron: '35 17 * * *'  # 20:35 (20:00 maçının 35. dk)
-    - cron: '05 19 * * *'  # 22:05 (21:30 maçının 35. dk)
-    - cron: '35 19 * * *'  # 22:35 (22:00 maçının 35. dk)
-    - cron: '22 21 * * *'  # 00:22 (23:00 maçının 82. dk)
-
-    # --- GÜNEY AMİRA / GECE YARISI SABAHIN KÖRÜ ---
-    - cron: '35 20 * * *'  # 23:35 (23:00 maçının 35. dk)
-    - cron: '52 22 * * *'  # 01:52 (00:00 maçının 82. dk)
-    - cron: '22 0 * * *'   # 03:22 (02:00 maçının 82. dk)
+    # --- AKŞAM VE GECE KUŞAĞI (Macaristan, Danimarka, İtalya vb.) ---
+    - cron: '34,35,36 17 * * *'  # 20:35 civarı (Şu anki maçları yakalaması için)
+    - cron: '21,22,23 19 * * *'  # 22:22 civarı
+    - cron: '04,05,06 19 * * *'  # 22:05 civarı
+    - cron: '34,35,36 19 * * *'  # 22:35 civarı
+    - cron: '21,22,23 21 * * *'  # 00:22 civarı
+    - cron: '34,35,36 20 * * *'  # 23:35 civarı
+    - cron: '21,22,23 22 * * *'  # 01:22 civarı
 
   workflow_dispatch:
 
