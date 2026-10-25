@@ -1,80 +1,72 @@
 import os
+import time
 import requests
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+# GitHub'daki secret isimlerine göre güncellendi
+API_KEY = os.environ.get("API_FOOTBALL_KEY")
+TELEGRAM_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
-def get_live_matches():
-    # Güncel ve engelsiz canlı maç veri kaynağı
-    url = "https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard"
-    
-    first_half = []
-    second_half = []
 
-    try:
-        res = requests.get(url, timeout=10)
-        if res.status_code == 200:
-            data = res.json()
-            for ev in data.get("events", []):
-                status = ev.get("status", {})
-                status_type = status.get("type", {}).get("name", "")
-                
-                if "IN_PROGRESS" not in status_type:
-                    continue
-                
-                clock = status.get("displayClock", "0'")
-                try:
-                    minute = int("".join(filter(str.isdigit, str(clock))))
-                except:
-                    minute = 0
+def send_telegram_message(message):
+  url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+  payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
+  try:
+    requests.post(url, json=payload)
+  except Exception as e:
+    print(f"Telegram mesajı gönderilemedi: {e}")
 
-                period = status.get("period", 1)
-                
-                competitions = ev.get("competitions", [{}])
-                competitors = competitions[0].get("competitors", [])
-                
-                home, away = "Ev Sahibi", "Deplasman"
-                for comp in competitors:
-                    if comp.get("homeAway") == "home":
-                        home = comp.get("team", {}).get("displayName", "Ev")
-                    elif comp.get("homeAway") == "away":
-                        away = comp.get("team", {}).get("displayName", "Deplasman")
 
-                is_fh = (period == 1 and minute >= 35)
-                is_sh = (period == 2 and (minute >= 70 or minute == 0 or minute >= 90))
+def check_corners():
+  url = "https://v3.football.api-sports.io/fixtures?live=all"
+  headers = {"x-apisports-key": API_KEY}
 
-                if is_fh:
-                    first_half.append({"home": home, "away": away, "minute": f"{minute}'"})
-                elif is_sh:
-                    second_half.append({"home": home, "away": away, "minute": f"{minute}'"})
-    except Exception as e:
-        print(f"Hata: {e}")
+  try:
+    response = requests.get(url, headers=headers)
+    data = response.json()
 
-    return first_half, second_half
+    if "errors" in data and data["errors"]:
+      print(f"API Hatası: {data['errors']}")
+      return
 
-def send_telegram():
-    fh, sh = get_live_matches()
+    for match in data.get("response", []):
+      fixture_id = match["fixture"]["id"]
+      home = match["teams"]["home"]["name"]
+      away = match["teams"]["away"]["name"]
+      minute = match["fixture"]["status"]["elapsed"]
 
-    if not fh and not sh:
-        print("Kriterlere uyan canlı maç yok.")
-        return
+      stat_url = (
+          f"https://v3.football.api-sports.io/fixtures/statistics?fixture="
+          f"{fixture_id}"
+      )
+      stat_resp = requests.get(stat_url, headers=headers)
+      stat_data = stat_resp.json()
 
-    msg = "🔥 **CANLI KORNER / MAÇ FIRSATLARI** 🔥\n\n"
+      corners = {home: 0, away: 0}
+      for team_stat in stat_data.get("response", []):
+        team_name = team_stat["team"]["name"]
+        for s in team_stat["statistics"]:
+          if s["type"] == "Corner Kicks":
+            val = s["value"]
+            corners[team_name] = int(val) if val is not None else 0
 
-    if fh:
-        msg += "📌 **1. YARI (35+ DK)**\n"
-        for m in fh:
-            msg += f"⚽ **{m['home']} vs {m['away']}** | Dk: {m['minute']}\n"
-            msg += "-----------------------------------\n"
+      total_corners = corners[home] + corners[away]
 
-    if sh:
-        msg += "\n📌 **2. YARI (70+ / UZATMALAR)**\n"
-        for m in sh:
-            msg += f"⚽ **{m['home']} vs {m['away']}** | Dk: {m['minute']}\n"
-            msg += "-----------------------------------\n"
+      if total_corners >= 8:
+        msg = (
+            f"⚽ *Korner Alarmı!*\n{home} vs {away} (Dakika: {minute}')\nToplam"
+            f" Korner: {total_corners}\n({home}: {corners[home]} - {away}:"
+            f" {corners[away]})"
+        )
+        send_telegram_message(msg)
 
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    requests.post(url, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+  except Exception as e:
+    print(f"Hata oluştu: {e}")
 
-if __name__ == "__main__":
-    send_telegram()
+
+print("Korner takip botu çalışmaya başladı...")
+
+
+# GitHub Actions üzerinde çalışması için tek seferlik kontrol yeterlidir.
+# (Actions workflow dosyasında zamanlama ayarlandığı için burada döngüye gerek yoktur.)
+check_corners()
