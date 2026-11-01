@@ -5,6 +5,7 @@ API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY", "SENIN_API_KEYIN")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKENIN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID'N")
 
+# Sadece takip etmek istediğin büyük liglerin ID'leri
 ONAYLI_LIG_IDLERI = [2, 3, 39, 61, 78, 135, 140, 203, 204]
 
 def send_telegram_message(text):
@@ -62,6 +63,7 @@ def check_matches():
         league_id = match['league']['id']
         league_name = match['league']['name']
         
+        # Onaylı liglerde değilse kesinlikle atla
         if league_id not in ONAYLI_LIG_IDLERI:
             continue
 
@@ -74,7 +76,6 @@ def check_matches():
         extra = fixture_status.get('extra')
         
         goals = match.get('goals', {})
-        # Düzeltilen kısım (köşeli parantezler doğrulandı)
         s_home = goals.get('home') if goals.get('home') is not None else 0
         s_away = goals.get('away') if goals.get('away') is not None else 0
 
@@ -110,8 +111,9 @@ def check_matches():
     if not kritik_liste and ara_dakika_listesi:
         final_mesaj += "*📋 ARA DAKİKA MAÇLARI (Büyük Ligler)*\n" + "\n\n".join([m['text'] for m in ara_dakika_listesi]) + "\n\n"
 
-    if not matches or (not kritik_liste and not ara_dakika_listesi):
-        final_mesaj += "💤 Şu an büyük liglerde takip kriterine uyan canlı maç bulunmuyor."
+    # Eğer kriterlere uyan hiç maç yoksa sadece bu mesajı ata
+    if not kritik_liste and not ara_dakika_listesi:
+        final_mesaj = "💤 Şu an büyük liglerde takip kriterine uyan canlı maç bulunmuyor."
 
     if final_mesaj:
         send_telegram_message(final_mesaj)
