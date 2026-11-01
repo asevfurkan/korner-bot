@@ -5,8 +5,6 @@ API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY", "SENIN_API_KEYIN")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKENIN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID'N")
 
-ONAYLI_LIG_IDLERI = [2, 3, 39, 61, 78, 135, 140, 203, 204]
-
 def send_telegram_message(text):
     tg_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {'chat_id': CHAT_ID, 'text': text, 'parse_mode': 'Markdown'}
@@ -42,6 +40,19 @@ def get_match_stats(fixture_id):
     except:
         return 0, 0
 
+def is_valid_league(league_name):
+    """Alt ligleri, amatörleri ve gençlik liglerini eler; tüm dünya üst liglerini ve kadınlar liglerini kabul eder."""
+    name_lower = league_name.lower()
+    yasakli_ifadeler = [
+        'u17', 'u19', 'u20', 'u21', 'u23', 'youth', 'reserve', 
+        'amateur', 'regional', 'division 3', 'division 4', 
+        '3. division', '4. division', '3. liga', '3. lig', 'tercera'
+    ]
+    for yasak in yasakli_ifadeler:
+        if yasak in name_lower:
+            return False
+    return True
+
 def check_matches():
     url = "https://v3.football.api-sports.io/fixtures"
     headers = {
@@ -60,10 +71,10 @@ def check_matches():
     diger_canli_maclar = []
 
     for match in matches:
-        league_id = match['league']['id']
         league_name = match['league']['name']
         
-        if league_id not in ONAYLI_LIG_IDLERI:
+        # Sadece alt/amatör/gençlik liglerini eliyoruz
+        if not is_valid_league(league_name):
             continue
 
         fixture_id = match['fixture']['id']
@@ -76,7 +87,6 @@ def check_matches():
         
         goals = match.get('goals', {})
         s_home = goals.get('home') if goals.get('home') is not None else 0
-        s_away = goals.get('goals', {}).get('away') if goals.get('away') is not None else 0 # Güvenli skor çekimi
         s_away = goals.get('away') if goals.get('away') is not None else 0
 
         if elapsed and elapsed > 90 and extra:
@@ -102,7 +112,7 @@ def check_matches():
                 'shots': shots
             })
 
-        # 3. Öncelik: Diğer tüm canlı maçlar (Yukarıdakiler yoksa ön hazırlık için)
+        # 3. Öncelik: Diğer canlı maçlar (Ön hazırlık)
         elif elapsed is not None:
             shots, corners = get_match_stats(fixture_id)
             diger_canli_maclar.append({
@@ -111,27 +121,21 @@ def check_matches():
                 'shots': shots
             })
 
-    # Tüm listeleri korner ve şut sayısına göre çoktan aza sıralıyoruz
+    # Listeleri korner ve şut sayısına göre çoktan aza sıralıyoruz
     kritik_liste.sort(key=lambda x: (x['corners'], x['shots']), reverse=True)
     ara_dakika_listesi.sort(key=lambda x: (x['corners'], x['shots']), reverse=True)
     diger_canli_maclar.sort(key=lambda x: (x['corners'], x['shots']), reverse=True)
 
     final_mesaj = ""
 
-    # Eğer tam kritik dakikalarda maç varsa sadece onları bas
     if kritik_liste:
         final_mesaj += "*🔥 KRİTİK ANLAR (35 ve 82. Dakika)*\n" + "\n\n".join([m['text'] for m in kritik_liste]) + "\n\n"
-
-    # Kritik dakikada yok ama ara dakikalarda maç varsa onları bas
     elif ara_dakika_listesi:
         final_mesaj += "*📋 ARA DAKİKA MAÇLARI*\n" + "\n\n".join([m['text'] for m in ara_dakika_listesi]) + "\n\n"
-
-    # Hiçbiri yoksa, o an oynanan diğer canlı maçları korner/şut sırasına göre ön hazırlık olarak bas
     elif diger_canli_maclar:
         final_mesaj += "*👀 DİĞER CANLI MAÇLAR (Ön Hazırlık - Korner/Şut Sıralı)*\n" + "\n\n".join([m['text'] for m in diger_canli_maclar])
-
     else:
-        final_mesaj = "💤 Şu an büyük liglerde oynanan canlı maç bulunmuyor."
+        final_mesaj = "💤 Şu an takip kriterine uyan canlı maç bulunmuyor."
 
     if final_mesaj:
         send_telegram_message(final_mesaj)
