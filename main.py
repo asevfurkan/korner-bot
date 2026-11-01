@@ -5,8 +5,6 @@ API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY", "SENIN_API_KEYIN")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKENIN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID'N")
 
-# İzin verilen / Takip edilmesini istediğin büyük liglerin ID'leri 
-# (Örnek: Süper Lig: 203, Premier Lig: 39, La Liga: 140, Serie A: 135, Bundesliga: 78, Ligue 1: 61, Şampiyonlar Ligi: 2, Avrupa Ligi: 3, 1. Lig: 204 vb.)
 ONAYLI_LIG_IDLERI = [2, 3, 39, 61, 78, 135, 140, 203, 204]
 
 def send_telegram_message(text):
@@ -64,7 +62,6 @@ def check_matches():
         league_id = match['league']['id']
         league_name = match['league']['name']
         
-        # Sadece bizim onayladığımız büyük liglerdeki maçları işleme al
         if league_id not in ONAYLI_LIG_IDLERI:
             continue
 
@@ -77,15 +74,14 @@ def check_matches():
         extra = fixture_status.get('extra')
         
         goals = match.get('goals', {})
-        s_home = goals.get('home') if goals.get('home'] is not None else 0
+        # Düzeltilen kısım (köşeli parantezler doğrulandı)
+        s_home = goals.get('home') if goals.get('home') is not None else 0
         s_away = goals.get('away') if goals.get('away') is not None else 0
 
-        # Uzatma filtresi
         if elapsed and elapsed > 90 and extra:
             if elapsed >= (90 + extra + 4):
                 continue
 
-        # 1. Kritik Dakika (35 veya 82)
         if elapsed in [35, 82]:
             shots, corners = get_match_stats(fixture_id)
             devre = "1. Devre" if elapsed == 35 else "2. Devre"
@@ -95,7 +91,6 @@ def check_matches():
                 'shots': shots
             })
 
-        # 2. Ara Dakikalar (15-20 veya 60-65)
         elif (15 <= elapsed <= 20) or (60 <= elapsed <= 65):
             shots, corners = get_match_stats(fixture_id)
             ara_dakika_listesi.append({
@@ -115,7 +110,6 @@ def check_matches():
     if not kritik_liste and ara_dakika_listesi:
         final_mesaj += "*📋 ARA DAKİKA MAÇLARI (Büyük Ligler)*\n" + "\n\n".join([m['text'] for m in ara_dakika_listesi]) + "\n\n"
 
-    # Eğer büyük liglerde canlı maç yoksa
     if not matches or (not kritik_liste and not ara_dakika_listesi):
         final_mesaj += "💤 Şu an büyük liglerde takip kriterine uyan canlı maç bulunmuyor."
 
