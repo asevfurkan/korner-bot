@@ -29,23 +29,24 @@ def get_match_stats(fixture_id):
         
         for team_stat in data:
             for stat in team_stat.get('statistics', []):
-                if stat['type'] == 'Total Shots':
-                    val = stat.get('value')
-                    total_shots += int(val) if val is not None else 0
-                elif stat['type'] == 'Corner Kicks':
-                    val = stat.get('value')
-                    total_corners += int(val) if val is not None else 0
-                    
+                val = stat.get('value')
+                if val is not None:
+                    try:
+                        val_int = int(val)
+                    except ValueError:
+                        val_int = 0
+                        
+                    if stat.get('type') == 'Total Shots':
+                        total_shots += val_int
+                    elif stat.get('type') == 'Corner Kicks':
+                        total_corners += val_int
+                        
         return total_shots, total_corners
     except:
         return 0, 0
 
 def is_valid_league(league_name, league_type):
-    """Alt ligleri, 3. ve 4. ligleri, amatörleri ve gençlik liglerini kesin olarak eler."""
     name_lower = league_name.lower()
-    type_lower = league_type.lower() if league_type else ""
-    
-    # Kupalar (Cup) ve Ligler (League) dışındakileri (örneğin Dostluk maçları vb.) eleyebiliriz ama ana odak lig seviyesi
     yasakli_ifadeler = [
         'u17', 'u19', 'u20', 'u21', 'u23', 'youth', 'reserve', 
         'amateur', 'regional', 'division 3', 'division 4', 
@@ -53,17 +54,12 @@ def is_valid_league(league_name, league_type):
         '3. lig', '4. lig', 'tercera', 'group b', 'group c',
         '4th division', '3rd division', 'iv divizija', 'iii liga'
     ]
-    
-    # İsminde 3. veya 4. lig ibaresi geçenleri yakala
     for yasak in yasakli_ifadeler:
         if yasak in name_lower:
             return False
-            
-    # Eğer lig isminde "3." veya "4." geçiyorsa ve yanına lig/liga kelimesi varsa direkt ele
     if ('3.' in name_lower or '4.' in name_lower or '3 ' in name_lower or '4 ' in name_lower):
         if 'lig' in name_lower or 'div' in name_lower or 'class' in name_lower or 'group' in name_lower:
             return False
-            
     return True
 
 def check_matches():
@@ -73,6 +69,7 @@ def check_matches():
         'x-rapidapi-host': 'v3.football.api-sports.io'
     }
     
+    # 1. İstek: Tüm canlı maçları tek sorguda alıyoruz (Kotayı koruyan temel hamle)
     params_live = {'live': 'all'}
     response_live = requests.get(url, headers=headers, params=params_live)
     live_data = response_live.json()
@@ -87,7 +84,6 @@ def check_matches():
         league_name = match['league']['name']
         league_type = match['league'].get('type', '')
         
-        # Sıkı filtreleme kontrolü
         if not is_valid_league(league_name, league_type):
             continue
 
@@ -107,7 +103,7 @@ def check_matches():
             if elapsed >= (90 + extra + 4):
                 continue
 
-        # 1. Öncelik: Tam 35. veya 82. dakika
+        # Sadece aradığımız kriterlerdeki maçlar için istatistik isteği atıyoruz (Kota dostu)
         if elapsed in [35, 82]:
             shots, corners = get_match_stats(fixture_id)
             devre = "1. Devre" if elapsed == 35 else "2. Devre"
@@ -117,7 +113,6 @@ def check_matches():
                 'shots': shots
             })
 
-        # 2. Öncelik: Ara dakikalar (15-20 veya 60-65)
         elif (15 <= elapsed <= 20) or (60 <= elapsed <= 65):
             shots, corners = get_match_stats(fixture_id)
             ara_dakika_listesi.append({
@@ -126,19 +121,17 @@ def check_matches():
                 'shots': shots
             })
 
-        # 3. Öncelik: Diğer canlı maçlar (Ön hazırlık)
         elif elapsed is not None:
-            shots, corners = get_match_stats(fixture_id)
+            # Ön hazırlık maçları için her seferinde API şişmesin diye istatistiksiz veya direkt ekleyebiliriz
+            # Kotayı korumak adına ön hazırlık maçlarında istatistik sorgusunu atlıyoruz veya isteğe bağlı tutuyoruz
             diger_canli_maclar.append({
-                'text': f"👀 *Canlı Maç* ({elapsed}')\n🏆 _{league_name}_\n⚽ *{home}* {s_home} - {s_away} *{away}*\n📊 Şut: {shots} | Korner: {corners}",
-                'corners': corners,
-                'shots': shots
+                'text': f"👀 *Canlı Maç* ({elapsed}')\n🏆 _{league_name}_\n⚽ *{home}* {s_home} - {s_away} *{away}*",
+                'corners': 0,
+                'shots': 0
             })
 
-    # Listeleri korner ve şut sayısına göre çoktan aza sıralıyoruz
     kritik_liste.sort(key=lambda x: (x['corners'], x['shots']), reverse=True)
     ara_dakika_listesi.sort(key=lambda x: (x['corners'], x['shots']), reverse=True)
-    diger_canli_maclar.sort(key=lambda x: (x['corners'], x['shots']), reverse=True)
 
     final_mesaj = ""
 
@@ -147,7 +140,9 @@ def check_matches():
     elif ara_dakika_listesi:
         final_mesaj += "*📋 ARA DAKİKA MAÇLARI*\n" + "\n\n".join([m['text'] for m in ara_dakika_listesi]) + "\n\n"
     elif diger_canli_maclar:
-        final_mesaj += "*👀 DİĞER CANLI MAÇLAR (Ön Hazırlık - Korner/Şut Sıralı)*\n" + "\n\n".join([m['text'] for m in diger_canli_maclar])
+        # Ön hazırlıkta sadece ilk 5 maçı göstererek hem spamı hem aşırı istekleri engelliyoruz
+        secilenler = [m['text'] for m in diger_canli_maclar[:5]]
+        final_mesaj += "*👀 DİĞER CANLI MAÇLAR (Ön Hazırlık)*\n" + "\n\n".join(secilenler)
     else:
         final_mesaj = "💤 Şu an takip kriterine uyan canlı maç bulunmuyor."
 
