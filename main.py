@@ -16,20 +16,26 @@ def send_telegram_message(text):
 
 def is_valid_league(league_name, league_type):
     name_lower = league_name.lower()
+    
+    # Korner bahsi açılmayan veya riskli görülen tüm lig/bölge ifadeleri
     yasakli_ifadeler = [
         'u17', 'u19', 'u20', 'u21', 'u23', 'youth', 'reserve', 
         'amateur', 'regional', 'division 3', 'division 4', 
         '3. division', '4. division', '3. liga', '4. liga', 
         '3. lig', '4. lig', 'tercera', 'group b', 'group c',
         '4th division', '3rd division', 'iv divizija', 'iii liga',
-        'thai league 2' # Sorun çıkaran ligleri buraya ekleyebilirsin
+        'thai league', 'caf women', 'friendly', 'friendlies',
+        'women cup', 'local', 'state'
     ]
+    
     for yasak in yasakli_ifadeler:
         if yasak in name_lower:
             return False
+            
     if ('3.' in name_lower or '4.' in name_lower or '3 ' in name_lower or '4 ' in name_lower):
         if 'lig' in name_lower or 'div' in name_lower or 'class' in name_lower or 'group' in name_lower:
             return False
+            
     return True
 
 def check_matches():
