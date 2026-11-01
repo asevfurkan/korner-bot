@@ -40,17 +40,30 @@ def get_match_stats(fixture_id):
     except:
         return 0, 0
 
-def is_valid_league(league_name):
-    """Alt ligleri, amatörleri ve gençlik liglerini eler; tüm dünya üst liglerini ve kadınlar liglerini kabul eder."""
+def is_valid_league(league_name, league_type):
+    """Alt ligleri, 3. ve 4. ligleri, amatörleri ve gençlik liglerini kesin olarak eler."""
     name_lower = league_name.lower()
+    type_lower = league_type.lower() if league_type else ""
+    
+    # Kupalar (Cup) ve Ligler (League) dışındakileri (örneğin Dostluk maçları vb.) eleyebiliriz ama ana odak lig seviyesi
     yasakli_ifadeler = [
         'u17', 'u19', 'u20', 'u21', 'u23', 'youth', 'reserve', 
         'amateur', 'regional', 'division 3', 'division 4', 
-        '3. division', '4. division', '3. liga', '3. lig', 'tercera'
+        '3. division', '4. division', '3. liga', '4. liga', 
+        '3. lig', '4. lig', 'tercera', 'group b', 'group c',
+        '4th division', '3rd division', 'iv divizija', 'iii liga'
     ]
+    
+    # İsminde 3. veya 4. lig ibaresi geçenleri yakala
     for yasak in yasakli_ifadeler:
         if yasak in name_lower:
             return False
+            
+    # Eğer lig isminde "3." veya "4." geçiyorsa ve yanına lig/liga kelimesi varsa direkt ele
+    if ('3.' in name_lower or '4.' in name_lower or '3 ' in name_lower or '4 ' in name_lower):
+        if 'lig' in name_lower or 'div' in name_lower or 'class' in name_lower or 'group' in name_lower:
+            return False
+            
     return True
 
 def check_matches():
@@ -72,9 +85,10 @@ def check_matches():
 
     for match in matches:
         league_name = match['league']['name']
+        league_type = match['league'].get('type', '')
         
-        # Sadece alt/amatör/gençlik liglerini eliyoruz
-        if not is_valid_league(league_name):
+        # Sıkı filtreleme kontrolü
+        if not is_valid_league(league_name, league_type):
             continue
 
         fixture_id = match['fixture']['id']
