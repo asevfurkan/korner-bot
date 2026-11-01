@@ -5,7 +5,6 @@ API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY", "SENIN_API_KEYIN")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKENIN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID'N")
 
-# Sadece takip etmek istediğin büyük liglerin ID'leri
 ONAYLI_LIG_IDLERI = [2, 3, 39, 61, 78, 135, 140, 203, 204]
 
 def send_telegram_message(text):
@@ -58,7 +57,7 @@ def check_matches():
     
     kritik_liste = []
     ara_dakika_listesi = []
-    tum_buyuk_lig_canlilar = []
+    diger_canli_maclar = []
 
     for match in matches:
         league_id = match['league']['id']
@@ -77,21 +76,14 @@ def check_matches():
         
         goals = match.get('goals', {})
         s_home = goals.get('home') if goals.get('home') is not None else 0
+        s_away = goals.get('goals', {}).get('away') if goals.get('away') is not None else 0 # Güvenli skor çekimi
         s_away = goals.get('away') if goals.get('away') is not None else 0
 
         if elapsed and elapsed > 90 and extra:
             if elapsed >= (90 + extra + 4):
                 continue
 
-        # Ön hazırlık listesi için istatistikleri çekiyoruz
-        if elapsed is not None:
-            shots, corners = get_match_stats(fixture_id)
-            tum_buyuk_lig_canlilar.append({
-                'text': f"⚽ *{home}* {s_home} - {s_away} *{away}* (Dakika: {elapsed}')\n🏆 _{league_name}_\n📊 Şut: {shots} | Korner: {corners}",
-                'corners': corners,
-                'shots': shots
-            })
-
+        # 1. Öncelik: Tam 35. veya 82. dakika
         if elapsed in [35, 82]:
             shots, corners = get_match_stats(fixture_id)
             devre = "1. Devre" if elapsed == 35 else "2. Devre"
@@ -101,6 +93,7 @@ def check_matches():
                 'shots': shots
             })
 
+        # 2. Öncelik: Ara dakikalar (15-20 veya 60-65)
         elif (15 <= elapsed <= 20) or (60 <= elapsed <= 65):
             shots, corners = get_match_stats(fixture_id)
             ara_dakika_listesi.append({
@@ -109,25 +102,36 @@ def check_matches():
                 'shots': shots
             })
 
-    # Listeleri korner ve şut sayısına göre çoktan aza sıralıyoruz
+        # 3. Öncelik: Diğer tüm canlı maçlar (Yukarıdakiler yoksa ön hazırlık için)
+        elif elapsed is not None:
+            shots, corners = get_match_stats(fixture_id)
+            diger_canli_maclar.append({
+                'text': f"👀 *Canlı Maç* ({elapsed}')\n🏆 _{league_name}_\n⚽ *{home}* {s_home} - {s_away} *{away}*\n📊 Şut: {shots} | Korner: {corners}",
+                'corners': corners,
+                'shots': shots
+            })
+
+    # Tüm listeleri korner ve şut sayısına göre çoktan aza sıralıyoruz
     kritik_liste.sort(key=lambda x: (x['corners'], x['shots']), reverse=True)
     ara_dakika_listesi.sort(key=lambda x: (x['corners'], x['shots']), reverse=True)
-    tum_buyuk_lig_canlilar.sort(key=lambda x: (x['corners'], x['shots']), reverse=True)
+    diger_canli_maclar.sort(key=lambda x: (x['corners'], x['shots']), reverse=True)
 
     final_mesaj = ""
 
+    # Eğer tam kritik dakikalarda maç varsa sadece onları bas
     if kritik_liste:
-        final_mesaj += "*🔥 KRİTİK ANLAR (Büyük Ligler)*\n" + "\n\n".join([m['text'] for m in kritik_liste]) + "\n\n"
+        final_mesaj += "*🔥 KRİTİK ANLAR (35 ve 82. Dakika)*\n" + "\n\n".join([m['text'] for m in kritik_liste]) + "\n\n"
 
-    if not kritik_liste and ara_dakika_listesi:
-        final_mesaj += "*📋 ARA DAKİKA MAÇLARI (Büyük Ligler)*\n" + "\n\n".join([m['text'] for m in ara_dakika_listesi]) + "\n\n"
+    # Kritik dakikada yok ama ara dakikalarda maç varsa onları bas
+    elif ara_dakika_listesi:
+        final_mesaj += "*📋 ARA DAKİKA MAÇLARI*\n" + "\n\n".join([m['text'] for m in ara_dakika_listesi]) + "\n\n"
 
-    # Kritik veya ara dakika maçı yoksa, ön hazırlık için diğer canlı maçları korner/şut sıralı bas
-    if not kritik_liste and not ara_dakika_listesi:
-        if tum_buyuk_lig_canlilar:
-            final_mesaj += "*👀 CANLI MAÇLAR (Ön Hazırlık - Korner/Şut Sıralı)*\n" + "\n\n".join([m['text'] for m in tum_buyuk_lig_canlilar])
-        else:
-            final_mesaj = "💤 Şu an büyük liglerde oynanan canlı maç bulunmuyor."
+    # Hiçbiri yoksa, o an oynanan diğer canlı maçları korner/şut sırasına göre ön hazırlık olarak bas
+    elif diger_canli_maclar:
+        final_mesaj += "*👀 DİĞER CANLI MAÇLAR (Ön Hazırlık - Korner/Şut Sıralı)*\n" + "\n\n".join([m['text'] for m in diger_canli_maclar])
+
+    else:
+        final_mesaj = "💤 Şu an büyük liglerde oynanan canlı maç bulunmuyor."
 
     if final_mesaj:
         send_telegram_message(final_mesaj)
