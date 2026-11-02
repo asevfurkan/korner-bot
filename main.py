@@ -5,6 +5,26 @@ API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY", "SENIN_API_KEYIN")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKENIN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID'N")
 
+SENT_FILE = "sent_matches.txt"
+
+def load_sent_matches():
+    if not os.path.exists(SENT_FILE):
+        return {}
+    sent = {}
+    with open(SENT_FILE, "r") as f:
+        for line in f:
+            parts = line.strip().split(",")
+            if len(parts) == 2:
+                sent[parts[0]] = parts[1] # fixture_id: devre (1H veya 2H)
+    return sent
+
+def save_sent_match(fixture_id, devre):
+    sent = load_sent_matches()
+    sent[str(fixture_id)] = devre
+    with open(SENT_FILE, "w") as f:
+        for fid, dev in sent.items():
+            f.write(f"{fid},{dev}\n")
+
 def send_telegram_message(text):
     tg_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {'chat_id': CHAT_ID, 'text': text, 'parse_mode': 'Markdown'}
@@ -92,6 +112,8 @@ def check_matches():
     response_live = requests.get(url, headers=headers, params=params_live)
     matches = response_live.json().get('response', [])
     
+    sent_matches = load_sent_matches()
+    
     kritik_liste = []
     ara_dakika_listesi = []
     diger_canli_maclar = []
@@ -101,7 +123,7 @@ def check_matches():
         if not is_valid_league(league_name):
             continue
 
-        fixture_id = match['fixture']['id']
+        fixture_id = str(match['fixture']['id'])
         home = match['teams']['home']['name']
         away = match['teams']['away']['name']
         
@@ -116,14 +138,17 @@ def check_matches():
             if elapsed >= (90 + extra + 4):
                 continue
 
+        devre = "1H" if (elapsed is not None and elapsed <= 45) else "2H"
+
+        # Eğer bu maç daha önce bu devrede gönderildiyse tekrar listeye alma (80. dakikaya kadar engelle)
+        if fixture_id in sent_matches and sent_matches[fixture_id] == devre:
+            continue
+
         if (35 <= elapsed <= 42) or (80 <= elapsed <= 88):
-            devre = "1H" if elapsed <= 45 else "2H"
             kritik_liste.append({'id': fixture_id, 'home': home, 'away': away, 'elapsed': elapsed, 'devre': devre, 'league': league_name, 's_home': s_home, 's_away': s_away})
         elif (15 <= elapsed <= 20) or (60 <= elapsed <= 65):
-            devre = "1H" if elapsed <= 45 else "2H"
             ara_dakika_listesi.append({'id': fixture_id, 'home': home, 'away': away, 'elapsed': elapsed, 'devre': devre, 'league': league_name, 's_home': s_home, 's_away': s_away})
         elif elapsed is not None:
-            devre = "1H" if elapsed <= 45 else "2H"
             diger_canli_maclar.append({'id': fixture_id, 'home': home, 'away': away, 'elapsed': elapsed, 'devre': devre, 'league': league_name, 's_home': s_home, 's_away': s_away})
 
     target_list = []
@@ -147,6 +172,8 @@ def check_matches():
             continue
 
         islenmis_veriler.append({
+            'id': m['id'],
+            'devre': m['devre'],
             'text': (
                 f"⚽ *{m['home']}* {m['s_home']} - {m['s_away']} *{m['away']}*\n"
                 f"   🏆 _{m['league']}_\n"
@@ -164,8 +191,11 @@ def check_matches():
     if en_iyi_uc:
         final_mesaj = baslik + "\n\n" + "\n\n".join([m['text'] for m in en_iyi_uc])
         send_telegram_message(final_mesaj)
+        # Gönderilen maçları hafızaya kaydet ki tekrar atmasın
+        for m in en_iyi_uc:
+            save_sent_match(m['id'], m['devre'])
     else:
-        send_telegram_message("💤 Şu an kriterlere uyan ve istatistiği bulunan maç bulunmuyor.")
+        send_telegram_message("💤 Şu an kriterlere uyan ve istatistiği bulunan yeni maç bulunmuyor.")
 
 if __name__ == "__main__":
     check_matches()
