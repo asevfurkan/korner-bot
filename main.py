@@ -54,31 +54,31 @@ def get_detailed_stats(fixture_id):
 def is_valid_league(league_name):
     name_lower = league_name.lower()
     
-    # Korner bahsi açılan kaliteli Avrupa 2. ligleri (İstisna olarak izin veriyoruz)
+    # Korner bahsi açılan kaliteli Avrupa 2. ligleri (İstisna)
     onayli_ikinci_ligler = [
         'championship', 'segunda división', 'serie b', 'ligue 2', 'eerste divisie'
     ]
-    
     for onayli in onayli_ikinci_ligler:
         if onayli in name_lower:
-            return True  # Bunlar 2. lig olsa bile içeri alınır
+            return True
 
-    # Diğer tüm alt ligler, amatörler, gençlik ligleri ve genel 2. ligler engellenir
+    # Sızan alt/bölgesel ligler ve standart yasaklar
     yasakli_ifadeler = [
         'u17', 'u19', 'u20', 'u21', 'u23', 'youth', 'reserve', 
         'amateur', 'regional', 'division 3', 'division 4', 
         '2. division', '3. division', '4. division', 
         '2. bundesliga', 'liga 2', '2. liga', '3. liga', '4. liga', 
         '2. lig', '3. lig', '4. lig', 'tercera', 'group b', 'group c',
-        '2nd division', '3rd division', '4th division', 'iv divizija', 'iii liga'
+        '2nd division', '3rd division', '4th division', 'iv divizija', 'iii liga',
+        'rfef', 'alef', 'liga alef', 'thai league 2'
     ]
     
     for yasak in yasakli_ifadeler:
         if yasak in name_lower:
             return False
             
-    if ('2.' in name_lower or '3.' in name_lower or '4.' in name_lower or '2 ' in name_lower or '3 ' in name_lower or '4 ' in name_lower):
-        if 'lig' in name_lower or 'div' in name_lower or 'class' in name_lower or 'group' in name_lower or 'bundesliga' in name_lower:
+    if ('2.' in name_lower or '3.' in name_lower or '4.' in name_lower or '2 ' in name_lower or '3 ' in name_lower or '4 ' in name_lower or 'group 2' in name_lower or 'group 3' in name_lower):
+        if 'lig' in name_lower or 'div' in name_lower or 'class' in name_lower or 'group' in name_lower or 'bundesliga' in name_lower or 'rfef' in name_lower:
             return False
             
     return True
@@ -118,7 +118,8 @@ def check_matches():
             if elapsed >= (90 + extra + 4):
                 continue
 
-        if elapsed in [35, 82]:
+        # Kritik dakika aralıkları (Cron gecikmelerini yakalamak için esnetildi)
+        if (35 <= elapsed <= 40) or (80 <= elapsed <= 86):
             devre = "1H" if elapsed <= 45 else "2H"
             kritik_liste.append({'id': fixture_id, 'home': home, 'away': away, 'elapsed': elapsed, 'devre': devre, 'league': league_name, 's_home': s_home, 's_away': s_away})
         elif (15 <= elapsed <= 20) or (60 <= elapsed <= 65):
@@ -133,7 +134,7 @@ def check_matches():
 
     if kritik_liste:
         target_list = kritik_liste
-        baslik = "🔥 *KRİTİK ANLAR (35 ve 82. Dakika)*"
+        baslik = "🔥 *KRİTİK ANLAR (35'+ / 80'+)*"
     elif ara_dakika_listesi:
         target_list = ara_dakika_listesi
         baslik = "📋 *ARA DAKİKA MAÇLARI*"
