@@ -143,7 +143,6 @@ def check_matches():
     for m in target_list:
         t_shots, h_s, a_s, t_corners, h_c, a_c = get_detailed_stats(m['id'])
         
-        # Şut veya korner toplamı 0 olanları direkt ele (Filtre)
         if t_shots == 0 and t_corners == 0:
             continue
 
@@ -152,17 +151,14 @@ def check_matches():
                 f"⚽ *{m['home']}* {m['s_home']} - {m['s_away']} *{m['away']}*\n"
                 f"   🏆 _{m['league']}_\n"
                 f"   ⏱️ ({m['devre']} - Dakika: {m['elapsed']}')\n"
-                f"   📊 Toplam Korner: {t_corners} ({h_c} - {a_c})\n"
-                f"   📊 Toplam Şut: {t_shots} ({h_s} - {a_s})"
+                f"   🚨 *TOPLAM KORNER: {t_corners} ({h_c} - {a_c})*\n"
+                f"   🎯 *TOPLAM ŞUT: {t_shots} ({h_s} - {a_s})*"
             ),
             'corners': t_corners,
             'shots': t_shots
         })
 
-    # Çoktan aza sıralama (Önce korner, sonra şut)
     islenmis_veriler.sort(key=lambda x: (x['corners'], x['shots']), reverse=True)
-
-    # Sadece en yüksek istatistikli ilk 3 maçı al
     en_iyi_uc = islenmis_veriler[:3]
 
     if en_iyi_uc:
