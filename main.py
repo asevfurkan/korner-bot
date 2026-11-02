@@ -54,7 +54,6 @@ def get_detailed_stats(fixture_id):
 def is_valid_league(league_name):
     name_lower = league_name.lower()
     
-    # Korner bahsi açılan kaliteli Avrupa 2. ligleri (İstisna)
     onayli_ikinci_ligler = [
         'championship', 'segunda división', 'serie b', 'ligue 2', 'eerste divisie'
     ]
@@ -62,7 +61,6 @@ def is_valid_league(league_name):
         if onayli in name_lower:
             return True
 
-    # Sızan alt/bölgesel ligler ve standart yasaklar
     yasakli_ifadeler = [
         'u17', 'u19', 'u20', 'u21', 'u23', 'youth', 'reserve', 
         'amateur', 'regional', 'division 3', 'division 4', 
@@ -118,8 +116,7 @@ def check_matches():
             if elapsed >= (90 + extra + 4):
                 continue
 
-        # Kritik dakika aralıkları (Cron gecikmelerini yakalamak için esnetildi)
-        if (35 <= elapsed <= 40) or (80 <= elapsed <= 86):
+        if (35 <= elapsed <= 42) or (80 <= elapsed <= 88):
             devre = "1H" if elapsed <= 45 else "2H"
             kritik_liste.append({'id': fixture_id, 'home': home, 'away': away, 'elapsed': elapsed, 'devre': devre, 'league': league_name, 's_home': s_home, 's_away': s_away})
         elif (15 <= elapsed <= 20) or (60 <= elapsed <= 65):
@@ -134,7 +131,7 @@ def check_matches():
 
     if kritik_liste:
         target_list = kritik_liste
-        baslik = "🔥 *KRİTİK ANLAR (35'+ / 80'+)*"
+        baslik = "🔥 *KRİTİK ANLAR (35-42' / 80-88')*"
     elif ara_dakika_listesi:
         target_list = ara_dakika_listesi
         baslik = "📋 *ARA DAKİKA MAÇLARI*"
@@ -145,6 +142,11 @@ def check_matches():
     islenmis_veriler = []
     for m in target_list:
         t_shots, h_s, a_s, t_corners, h_c, a_c = get_detailed_stats(m['id'])
+        
+        # Şut veya korner toplamı 0 olanları direkt ele (Filtre)
+        if t_shots == 0 and t_corners == 0:
+            continue
+
         islenmis_veriler.append({
             'text': (
                 f"⚽ *{m['home']}* {m['s_home']} - {m['s_away']} *{m['away']}*\n"
@@ -157,13 +159,17 @@ def check_matches():
             'shots': t_shots
         })
 
+    # Çoktan aza sıralama (Önce korner, sonra şut)
     islenmis_veriler.sort(key=lambda x: (x['corners'], x['shots']), reverse=True)
 
-    if islenmis_veriler:
-        final_mesaj = baslik + "\n\n" + "\n\n".join([m['text'] for m in islenmis_veriler])
+    # Sadece en yüksek istatistikli ilk 3 maçı al
+    en_iyi_uc = islenmis_veriler[:3]
+
+    if en_iyi_uc:
+        final_mesaj = baslik + "\n\n" + "\n\n".join([m['text'] for m in en_iyi_uc])
         send_telegram_message(final_mesaj)
     else:
-        send_telegram_message("💤 Şu an takip kriterine uyan canlı maç bulunmuyor.")
+        send_telegram_message("💤 Şu an kriterlere uyan ve istatistiği bulunan maç bulunmuyor.")
 
 if __name__ == "__main__":
     check_matches()
