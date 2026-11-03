@@ -74,7 +74,6 @@ def get_detailed_stats(fixture_id):
 def is_valid_league(league_name):
     name_lower = league_name.lower()
     
-    # Kupaları ve onaylı ligleri doğrudan içeri al
     onayli_terimler = [
         'championship', 'segunda división', 'serie b', 'ligue 2', 'eerste divisie',
         'cup', 'kupa', 'copa', 'coppa', 'pokal', 'super cup', 'supercup'
@@ -117,8 +116,7 @@ def check_matches():
     sent_matches = load_sent_matches()
     
     kritik_liste = []
-    ara_dakika_listesi = []
-    diger_canli_maclar = []
+    tum_canli_maclar = []
 
     for match in matches:
         league_name = match['league']['name']
@@ -131,39 +129,49 @@ def check_matches():
         
         fixture_status = match.get('fixture', {}).get('status', {})
         elapsed = fixture_status.get('elapsed')
-        extra = fixture_status.get('extra')
+        extra = fixture_status.get('extra') or 0
         
         s_home = match.get('goals', {}).get('home') or 0
         s_away = match.get('goals', {}).get('away') or 0
 
-        if elapsed and elapsed > 90 and extra:
+        if elapsed is None:
+            continue
+
+        if elapsed > 90 and extra:
             if elapsed >= (90 + extra + 4):
                 continue
 
-        devre = "1H" if (elapsed is not None and elapsed <= 45) else "2H"
+        devre = "1H" if elapsed <= 45 else "2H"
 
         if fixture_id in sent_matches and sent_matches[fixture_id] == devre:
             continue
 
-        if (35 <= elapsed <= 42) or (80 <= elapsed <= 88):
+        # Yeni esnetilmiş aralık: 
+        # 1. Yarı: 35. dakikadan başlayıp devre sonuna ve uzatmalara kadar (örn. 45+4'e kadar)
+        # 2. Yarı: 80. dakikadan başlayıp maç sonuna ve uzatmalara kadar (örn. 90+4'e kadar)
+        is_first_half_critical = (35 <= elapsed <= (45 + 4))
+        is_second_half_critical = (80 <= elapsed <= (90 + 4))
+
+        if is_first_half_critical or is_second_half_critical:
             kritik_liste.append({'id': fixture_id, 'home': home, 'away': away, 'elapsed': elapsed, 'devre': devre, 'league': league_name, 's_home': s_home, 's_away': s_away})
-        elif (15 <= elapsed <= 20) or (60 <= elapsed <= 65):
-            ara_dakika_listesi.append({'id': fixture_id, 'home': home, 'away': away, 'elapsed': elapsed, 'devre': devre, 'league': league_name, 's_home': s_home, 's_away': s_away})
-        elif elapsed is not None:
-            diger_canli_maclar.append({'id': fixture_id, 'home': home, 'away': away, 'elapsed': elapsed, 'devre': devre, 'league': league_name, 's_home': s_home, 's_away': s_away})
+        else:
+            distance = (45 - elapsed) if elapsed <= 45 else (90 - elapsed)
+            if 0 <= abs(distance) <= 20:
+                tum_canli_maclar.append({
+                    'id': fixture_id, 'home': home, 'away': away, 
+                    'elapsed': elapsed, 'devre': devre, 'league': league_name, 
+                    's_home': s_home, 's_away': s_away, 'distance': abs(distance)
+                })
 
     target_list = []
     baslik = ""
 
     if kritik_liste:
         target_list = kritik_liste
-        baslik = "🔥 *KRİTİK ANLAR (35-42' / 80-88')*"
-    elif ara_dakika_listesi:
-        target_list = ara_dakika_listesi
-        baslik = "📋 *ARA DAKİKA MAÇLARI*"
-    elif diger_canli_maclar:
-        target_list = diger_canli_maclar[:5]
-        baslik = "👀 *DİĞER CANLI MAÇLAR (Ön Hazırlık)*"
+        baslik = "🔥 *KRİTİK ANLAR (35+ / 80+ Uzatmalar Dahil)*"
+    elif tum_canli_maclar:
+        target_list = tum_canli_maclar
+        baslik = "⏳ *DEVRE BİTİMİNE YAKIN MAÇLAR*"
 
     islenmis_veriler = []
     for m in target_list:
@@ -175,6 +183,7 @@ def check_matches():
         islenmis_veriler.append({
             'id': m['id'],
             'devre': m['devre'],
+            'distance': m.get('distance', 0),
             'text': (
                 f"⚽ *{m['home']}* {m['s_home']} - {m['s_away']} *{m['away']}*\n"
                 f"   🏆 _{m['league']}_\n"
@@ -186,7 +195,11 @@ def check_matches():
             'shots': t_shots
         })
 
-    islenmis_veriler.sort(key=lambda x: (x['corners'], x['shots']), reverse=True)
+    if kritik_liste:
+        islenmis_veriler.sort(key=lambda x: (x['corners'], x['shots']), reverse=True)
+    else:
+        islenmis_veriler.sort(key=lambda x: (x['distance'], -x['corners'], -x['shots']))
+
     en_iyi_uc = islenmis_veriler[:3]
 
     if en_iyi_uc:
@@ -195,7 +208,7 @@ def check_matches():
         for m in en_iyi_uc:
             save_sent_match(m['id'], m['devre'])
     else:
-        send_telegram_message("💤 Şu an kriterlere uyan ve istatistiği bulunan yeni maç bulunmuyor.")
+        send_telegram_message("💤 Şu an kriterlere uyan ve istatistiği bulunan maç bulunmuyor.")
 
 if __name__ == "__main__":
     check_matches()
