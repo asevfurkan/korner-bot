@@ -15,7 +15,7 @@ def load_sent_matches():
         for line in f:
             parts = line.strip().split(",")
             if len(parts) == 2:
-                sent[parts[0]] = parts[1] # fixture_id: devre (1H veya 2H)
+                sent[parts[0]] = parts[1]
     return sent
 
 def save_sent_match(fixture_id, devre):
@@ -74,10 +74,12 @@ def get_detailed_stats(fixture_id):
 def is_valid_league(league_name):
     name_lower = league_name.lower()
     
-    onayli_ikinci_ligler = [
-        'championship', 'segunda división', 'serie b', 'ligue 2', 'eerste divisie'
+    # Kupaları ve onaylı ligleri doğrudan içeri al
+    onayli_terimler = [
+        'championship', 'segunda división', 'serie b', 'ligue 2', 'eerste divisie',
+        'cup', 'kupa', 'copa', 'coppa', 'pokal', 'super cup', 'supercup'
     ]
-    for onayli in onayli_ikinci_ligler:
+    for onayli in onayli_terimler:
         if onayli in name_lower:
             return True
 
@@ -140,7 +142,6 @@ def check_matches():
 
         devre = "1H" if (elapsed is not None and elapsed <= 45) else "2H"
 
-        # Eğer bu maç daha önce bu devrede gönderildiyse tekrar listeye alma (80. dakikaya kadar engelle)
         if fixture_id in sent_matches and sent_matches[fixture_id] == devre:
             continue
 
@@ -191,7 +192,6 @@ def check_matches():
     if en_iyi_uc:
         final_mesaj = baslik + "\n\n" + "\n\n".join([m['text'] for m in en_iyi_uc])
         send_telegram_message(final_mesaj)
-        # Gönderilen maçları hafızaya kaydet ki tekrar atmasın
         for m in en_iyi_uc:
             save_sent_match(m['id'], m['devre'])
     else:
