@@ -1,28 +1,30 @@
-name: Korner Bot
+name: Korner Bot Run
 
 on:
-  repository_dispatch:
-    types: [run-bot]
-  workflow_dispatch:
+  schedule:
+    - cron: '*/2 * * * *'  # Her 2 dakikada bir çalıştırır
+  workflow_dispatch: # Elle de tetikleyebilmen için
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
-      - name: Depoyu Kontrol Et
-        uses: actions/checkout@v2
+      - name: Checkout repo
+        uses: actions/checkout@v3
 
-      - name: Python Kurulumu
-        uses: actions/setup-python@v2
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: '3.10'
 
-      - name: Gerekli Kütüphaneleri Kur
-        run: pip install requests
+      - name: Install dependencies
+        run: |
+          pip install requests
 
-      - name: Botu Başlat
+      - name: Run script
         env:
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
-        run: python main.py
+        run: |
+          python main.py
