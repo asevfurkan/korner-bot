@@ -1,3 +1,4 @@
+
 name: Live Corner Bot
 
 on:
@@ -36,8 +37,8 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python main.py
 
-      - name: Öneri geçmişini kaydet
+      - name: Bot verilerini kaydet
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Update corner bot tracking data"
-          file_pattern: "sent_matches.txt pending_snapshots.json corner_history.json"
+          file_pattern: "sent_matches.txt pending_snapshots.json corner_history.json diagnostic_state.json"
