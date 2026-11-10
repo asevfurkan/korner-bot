@@ -1,5 +1,6 @@
 import os
 import requests
+import time
 
 API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY", "SENIN_API_KEYIN")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKENIN")
@@ -110,8 +111,12 @@ def check_matches():
     }
     
     params_live = {'live': 'all'}
-    response_live = requests.get(url, headers=headers, params=params_live)
-    matches = response_live.json().get('response', [])
+    try:
+        response_live = requests.get(url, headers=headers, params=params_live)
+        matches = response_live.json().get('response', [])
+    except Exception as e:
+        print(f"Canlı maçlar çekilemedi: {e}")
+        return
     
     sent_matches = load_sent_matches()
     
@@ -146,9 +151,6 @@ def check_matches():
         if fixture_id in sent_matches and sent_matches[fixture_id] == devre:
             continue
 
-        # Yeni esnetilmiş aralık: 
-        # 1. Yarı: 35. dakikadan başlayıp devre sonuna ve uzatmalara kadar (örn. 45+4'e kadar)
-        # 2. Yarı: 80. dakikadan başlayıp maç sonuna ve uzatmalara kadar (örn. 90+4'e kadar)
         is_first_half_critical = (35 <= elapsed <= (45 + 4))
         is_second_half_critical = (80 <= elapsed <= (90 + 4))
 
@@ -207,8 +209,14 @@ def check_matches():
         send_telegram_message(final_mesaj)
         for m in en_iyi_uc:
             save_sent_match(m['id'], m['devre'])
-    else:
-        send_telegram_message("💤 Şu an kriterlere uyan ve istatistiği bulunan maç bulunmuyor.")
 
 if __name__ == "__main__":
-    check_matches()
+    print("Bot başlatıldı! Her 2 dakikada bir kontrol ediliyor...")
+    while True:
+        try:
+            check_matches()
+        except Exception as e:
+            print(f"Hata oluştu: {e}")
+        
+        # 2 dakikada bir çalışması için 120 saniye bekletiyoruz
+        time.sleep(120)
