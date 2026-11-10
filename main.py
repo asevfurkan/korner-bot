@@ -1,13 +1,13 @@
+
 import html
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import requests
 
-# GitHub Actions -> Settings -> Secrets and variables -> Actions
 API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY", "").strip()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 CHAT_ID = os.getenv("CHAT_ID", "").strip()
@@ -16,8 +16,15 @@ API_BASE = "https://v3.football.api-sports.io"
 SENT_FILE = Path("sent_matches.txt")
 PENDING_FILE = Path("pending_snapshots.json")
 HISTORY_FILE = Path("corner_history.json")
+DIAGNOSTIC_FILE = Path("diagnostic_state.json")
+
 REQUEST_TIMEOUT = 20
 MAX_MATCHES_IN_MESSAGE = 3
+DIAGNOSTIC_INTERVAL_MINUTES = 30
+
+
+def now_utc():
+    return datetime.now(timezone.utc)
 
 
 def require_secrets():
@@ -47,9 +54,8 @@ def api_get(endpoint, params):
     response.raise_for_status()
     payload = response.json()
 
-    errors = payload.get("errors")
-    if errors:
-        raise RuntimeError(f"API-Football hatası: {errors}")
+    if payload.get("errors"):
+        raise RuntimeError(f"API-Football hatası: {payload['errors']}")
 
     return payload.get("response", [])
 
@@ -61,7 +67,7 @@ def read_json(path, default):
         with path.open("r", encoding="utf-8") as file:
             return json.load(file)
     except (json.JSONDecodeError, OSError) as exc:
-        print(f"{path} okunamadı, varsayılan veri kullanılacak: {exc}")
+        print(f"{path} okunamadı: {exc}")
         return default
 
 
@@ -110,6 +116,7 @@ def send_telegram_message(message):
 
     if not result.get("ok"):
         raise RuntimeError(f"Telegram gönderim hatası: {result}")
+
     return True
 
 
@@ -125,11 +132,7 @@ def is_valid_league(league_name):
         "4th division", "iv divizija", "iii liga",
         "rfef", "alef", "liga alef", "thai league 2",
     ]
-    if any(term in name for term in banned_terms):
-        return False
-
-    # Eski filtre davranışı korunuyor.
-    return True
+    return not any(term in name for term in banned_terms)
 
 
 def to_int(value):
@@ -137,6 +140,7 @@ def to_int(value):
         return None
     if isinstance(value, (int, float)):
         return int(value)
+
     text = str(value).strip().replace("%", "").replace(",", ".")
     try:
         return int(float(text))
@@ -177,14 +181,11 @@ def get_match_stats(fixture_id, home_team_id, away_team_id, first_half=False):
     home = stats_by_team[home_team_id]
     away = stats_by_team[away_team_id]
 
-    # Corner verisi gerçekten yoksa sıfır varsayma; sonucu belirsiz bırak.
     if home["corners"] is None or away["corners"] is None:
         return None
 
     def sum_if_known(a, b):
-        if a is None or b is None:
-            return None
-        return a + b
+        return a + b if a is not None and b is not None else None
 
     return {
         "total_shots": sum_if_known(home["shots"], away["shots"]),
@@ -221,7 +222,46 @@ def format_minute(elapsed, extra):
     return minute
 
 
-def build_message(matches):
+def diagnostic_text(counts):
+    return (
+        "\n\n<b>🔎 KONTROL RAPORU</b>\n"
+        f"Canlı maç: {counts['live']}\n"
+        f"Filtre nedeniyle elenen: {counts['league_rejected']}\n"
+        f"Dakika/devre uygun değil: {counts['phase_rejected']}\n"
+        f"Daha önce bildirilmiş/beklemede: {counts['already_handled']}\n"
+        f"Korner verisi eksik: {counts['missing_corners']}\n"
+        f"Uygun aday: {counts['candidates']}\n"
+        f"Seçilen maç: {counts['selected']}"
+    )
+
+
+def send_diagnostic_if_due(counts):
+    state = read_json(DIAGNOSTIC_FILE, {})
+    last_sent = state.get("last_sent")
+
+    if last_sent:
+        try:
+            last_time = datetime.fromisoformat(last_sent)
+            if now_utc() - last_time < timedelta(
+                minutes=DIAGNOSTIC_INTERVAL_MINUTES
+            ):
+                print("Tanılama raporu bekleme süresinde; Telegram mesajı gönderilmedi.")
+                return
+        except (TypeError, ValueError):
+            pass
+
+    message = (
+        "💤 <b>Uygun maç bulunamadı.</b>\n"
+        "Aşağıda son kontrolün nedeni var."
+        + diagnostic_text(counts)
+    )
+
+    send_telegram_message(message)
+    write_json(DIAGNOSTIC_FILE, {"last_sent": now_utc().isoformat()})
+    print("Telegram tanılama raporu gönderildi.")
+
+
+def build_message(matches, counts):
     lines = [
         "🔥 <b>KORNER TAKİP LİSTESİ</b>",
         "<i>Sıralama: korner → toplam şut → isabetli şut</i>",
@@ -231,7 +271,10 @@ def build_message(matches):
     for index, item in enumerate(matches, start=1):
         match = item["match"]
         status_data = (match.get("fixture") or {}).get("status") or {}
-        minute = format_minute(status_data.get("elapsed"), status_data.get("extra") or 0)
+        minute = format_minute(
+            status_data.get("elapsed"),
+            status_data.get("extra") or 0,
+        )
 
         home = html.escape(match["teams"]["home"]["name"])
         away = html.escape(match["teams"]["away"]["name"])
@@ -254,6 +297,7 @@ def build_message(matches):
     lines.append(
         "<i>Bu liste istatistik sıralamasıdır; korner olacağını garanti etmez.</i>"
     )
+    lines.append(diagnostic_text(counts))
     return "\n".join(lines)
 
 
@@ -263,6 +307,7 @@ def create_snapshot(item):
     status = fixture.get("status") or {}
     teams = match.get("teams") or {}
     goals = match.get("goals") or {}
+
     return {
         "fixture_id": str(fixture.get("id")),
         "phase": item["phase"],
@@ -277,7 +322,7 @@ def create_snapshot(item):
         "snapshot_corners": item["stats"]["total_corners"],
         "snapshot_shots": item["stats"]["total_shots"],
         "snapshot_shots_on_target": item["stats"]["shots_on_target"],
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": now_utc().isoformat(),
     }
 
 
@@ -289,16 +334,10 @@ def is_match_finished(status):
     return status in {"FT", "AET", "PEN", "AWD", "WO"}
 
 
-def fetch_fixture_status(fixture_id):
-    rows = api_get("fixtures", {"id": fixture_id})
-    if not rows:
-        return None
-    return rows[0]
-
-
 def finalize_pending_snapshots():
     pending = read_json(PENDING_FILE, [])
     history = read_json(HISTORY_FILE, [])
+
     if not pending:
         return
 
@@ -316,9 +355,10 @@ def finalize_pending_snapshots():
                 continue
 
             match = match_rows[0]
-            status = ((match.get("fixture") or {}).get("status") or {}).get("short")
+            status = (
+                (match.get("fixture") or {}).get("status") or {}
+            ).get("short")
 
-            # İlk yarı önerisini devre bittiğinde; ikinci yarı önerisini maç bitince ölç.
             if phase == "1H" and not is_first_half_finished(status):
                 still_pending.append(snapshot)
                 continue
@@ -334,29 +374,30 @@ def finalize_pending_snapshots():
             )
 
             if stats is None:
-                result_status = "veri_yok"
-                corners_after = None
-                success = None
-            else:
-                corners_after = max(
-                    0, stats["total_corners"] - snapshot["snapshot_corners"]
-                )
-                success = corners_after >= 1
-                result_status = "ölçüldü"
+                # Veri henüz gelmediyse geçmişe veri yok diye yazıp silme.
+                still_pending.append(snapshot)
+                print(f"{fixture_id}: sonuç korner verisi henüz yok, tekrar denenecek.")
+                continue
+
+            corners_after = max(
+                0, stats["total_corners"] - snapshot["snapshot_corners"]
+            )
+            success = corners_after >= 1
 
             history.append({
                 **snapshot,
-                "result_status": result_status,
+                "result_status": "ölçüldü",
                 "corners_after_alert": corners_after,
                 "at_least_one_corner": success,
-                "final_corners": stats["total_corners"] if stats else None,
+                "final_corners": stats["total_corners"],
                 "completed_status": status,
-                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "completed_at": now_utc().isoformat(),
             })
             completed_count += 1
+
             print(
                 f"Öneri sonucu: {fixture_id} / {phase} / "
-                f"sonraki korner: {corners_after if corners_after is not None else 'veri yok'}"
+                f"sonraki korner: {corners_after}"
             )
 
         except (requests.RequestException, RuntimeError, KeyError) as exc:
@@ -377,12 +418,14 @@ def print_history_summary():
         if item.get("result_status") == "ölçüldü"
         and item.get("at_least_one_corner") is not None
     ]
+
     if not measured:
         print("Henüz ölçülebilir öneri geçmişi yok.")
         return
 
     successes = sum(1 for item in measured if item["at_least_one_corner"])
     rate = successes / len(measured) * 100
+
     print(
         f"ÖNERİ İSTATİSTİĞİ: {successes}/{len(measured)} öneriden sonra "
         f"en az 1 korner geldi. Başarı oranı: %{rate:.1f}"
@@ -397,50 +440,80 @@ def print_history_summary():
 
 def check_matches():
     require_secrets()
-
-    # Önce önceki bildirimlerin sonuçlarını kontrol et.
     finalize_pending_snapshots()
 
     live_matches = api_get("fixtures", {"live": "all"})
     sent = load_sent_matches()
     pending = read_json(PENDING_FILE, [])
+
     pending_keys = {
-        (item.get("fixture_id"), item.get("phase")) for item in pending
+        (str(item.get("fixture_id")), item.get("phase"))
+        for item in pending
     }
+
+    counts = {
+        "live": len(live_matches),
+        "league_rejected": 0,
+        "phase_rejected": 0,
+        "already_handled": 0,
+        "missing_corners": 0,
+        "candidates": 0,
+        "selected": 0,
+    }
+
     candidates = []
 
     for match in live_matches:
         league_name = (match.get("league") or {}).get("name", "")
+
         if not is_valid_league(league_name):
+            counts["league_rejected"] += 1
             continue
 
         phase = get_phase(match)
         if phase is None:
+            counts["phase_rejected"] += 1
             continue
 
         fixture_id = str((match.get("fixture") or {}).get("id"))
-        if not fixture_id or sent.get(fixture_id) == phase:
+
+        if not fixture_id:
             continue
-        if (fixture_id, phase) in pending_keys:
+
+        if sent.get(fixture_id) == phase or (fixture_id, phase) in pending_keys:
+            counts["already_handled"] += 1
             continue
 
         teams = match.get("teams") or {}
         home_team_id = (teams.get("home") or {}).get("id")
         away_team_id = (teams.get("away") or {}).get("id")
+
         if home_team_id is None or away_team_id is None:
             continue
 
         try:
-            stats = get_match_stats(fixture_id, home_team_id, away_team_id)
+            stats = get_match_stats(
+                fixture_id, home_team_id, away_team_id
+            )
         except (requests.RequestException, RuntimeError) as exc:
             print(f"{fixture_id} istatistik isteği başarısız: {exc}")
+            counts["missing_corners"] += 1
             continue
 
         if stats is None:
-            print(f"{fixture_id}: korner istatistiği bulunamadı, atlandı.")
+            counts["missing_corners"] += 1
+            print(
+                f"{fixture_id}: korner istatistiği yok. "
+                "Bu maç sonraki kontrolde yeniden denenecek."
+            )
+            # sent veya pending listesine eklenmiyor; sonraki çalıştırma tekrar dener.
             continue
 
-        candidates.append({"match": match, "phase": phase, "stats": stats})
+        candidates.append({
+            "match": match,
+            "phase": phase,
+            "stats": stats,
+        })
 
     candidates.sort(
         key=lambda item: (
@@ -451,15 +524,25 @@ def check_matches():
         reverse=True,
     )
 
+    counts["candidates"] = len(candidates)
     selected = candidates[:MAX_MATCHES_IN_MESSAGE]
+    counts["selected"] = len(selected)
+
     if not selected:
         print("Bu kontrolde bildirilecek uygun maç bulunamadı.")
+        print(diagnostic_text(counts))
+        try:
+            send_diagnostic_if_due(counts)
+        except (requests.RequestException, RuntimeError) as exc:
+            print(f"Telegram tanılama mesajı gönderilemedi: {exc}")
+
         print_history_summary()
         return
 
-    send_telegram_message(build_message(selected))
+    # Önce Telegram bildirimi gönderilir.
+    send_telegram_message(build_message(selected, counts))
 
-    # Telegram başarılı olduktan sonra bildirim snapshot'larını kalıcı kaydet.
+    # Gönderim başarılı olursa bildirim kayıtları kalıcılaştırılır.
     for item in selected:
         snapshot = create_snapshot(item)
         pending.append(snapshot)
@@ -467,6 +550,7 @@ def check_matches():
 
     save_sent_matches(sent)
     write_json(PENDING_FILE, pending)
+
     print(f"Telegram bildirimi gönderildi. Maç sayısı: {len(selected)}")
     print_history_summary()
 
