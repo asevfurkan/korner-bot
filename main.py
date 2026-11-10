@@ -1,6 +1,5 @@
 import os
 import requests
-import time
 
 API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY", "SENIN_API_KEYIN")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKENIN")
@@ -86,7 +85,6 @@ def is_valid_league(league_name):
     yasakli_ifadeler = [
         'u17', 'u19', 'u20', 'u21', 'u23', 'youth', 'reserve', 
         'amateur', 'regional', 'division 3', 'division 4', 
-        '2. division', '3. division', '4. division', 
         '2. bundesliga', 'liga 2', '2. liga', '3. liga', '4. liga', 
         '2. lig', '3. lig', '4. lig', 'tercera', 'group b', 'group c',
         '2nd division', '3rd division', '4th division', 'iv divizija', 'iii liga',
@@ -95,10 +93,6 @@ def is_valid_league(league_name):
     
     for yasak in yasakli_ifadeler:
         if yasak in name_lower:
-            return False
-            
-    if ('2.' in name_lower or '3.' in name_lower or '4.' in name_lower or '2 ' in name_lower or '3 ' in name_lower or '4 ' in name_lower or 'group 2' in name_lower or 'group 3' in name_lower):
-        if 'lig' in name_lower or 'div' in name_lower or 'class' in name_lower or 'group' in name_lower or 'bundesliga' in name_lower or 'rfef' in name_lower:
             return False
             
     return True
@@ -151,6 +145,7 @@ def check_matches():
         if fixture_id in sent_matches and sent_matches[fixture_id] == devre:
             continue
 
+        # DAKİKA FİLTRESİ: İlk yarı 35'ten uzatmalara kadar, İkinci yarı 80'den 90+4'e kadar
         is_first_half_critical = (35 <= elapsed <= (45 + 4))
         is_second_half_critical = (80 <= elapsed <= (90 + 4))
 
@@ -211,12 +206,4 @@ def check_matches():
             save_sent_match(m['id'], m['devre'])
 
 if __name__ == "__main__":
-    print("Bot başlatıldı! Her 2 dakikada bir kontrol ediliyor...")
-    while True:
-        try:
-            check_matches()
-        except Exception as e:
-            print(f"Hata oluştu: {e}")
-        
-        # 2 dakikada bir çalışması için 120 saniye bekletiyoruz
-        time.sleep(120)
+    check_matches()
