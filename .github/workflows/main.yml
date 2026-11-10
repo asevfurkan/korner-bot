@@ -2,14 +2,17 @@ name: Korner Bot Run
 
 on:
   schedule:
-    - cron: '*/2 * * * *'  # Her 2 dakikada bir çalıştırır
-  workflow_dispatch: # Elle de tetikleyebilmen için
+    - cron: '*/2 * * * *'  # Her 2 dakikada bir otomatik çalıştırır
+  workflow_dispatch:      # Elle test etmek istediğinde
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # GitHub'ın sent_matches.txt dosyasını kaydetmesi için yazma izni şart!
+
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Set up Python
@@ -21,10 +24,16 @@ jobs:
         run: |
           pip install requests
 
-      - name: Run script
+      - name: Run bot script
         env:
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: |
           python main.py
+
+      - name: Commit and push sent_matches cache
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "Auto-update sent_matches cache [skip ci]"
+          file_pattern: sent_matches.txt
