@@ -41,4 +41,4 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Update corner bot tracking data"
-          file_pattern: "sent_matches.txt pending_snapshots.json corner_history.json diagnostic_state.json"
+          file_pattern: "*.txt *.json"
