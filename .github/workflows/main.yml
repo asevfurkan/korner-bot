@@ -2,14 +2,14 @@ name: Korner Bot Run
 
 on:
   schedule:
-    - cron: '*/2 * * * *'  # Her 2 dakikada bir otomatik çalıştırır
+    - cron: '*/2 * * * *'  # Her 2 dakikada bir otomatik tetikler
   workflow_dispatch:      # Elle test etmek istediğinde
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # GitHub'ın sent_matches.txt dosyasını kaydetmesi için yazma izni şart!
+      contents: write  # sent_matches.txt dosyasının kaydedilebilmesi için yazma izni
 
     steps:
       - name: Checkout repository
