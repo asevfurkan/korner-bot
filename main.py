@@ -136,24 +136,24 @@ def check_matches():
         if elapsed is None:
             continue
 
-        if elapsed > 90 and extra:
-            if elapsed >= (90 + extra + 4):
-                continue
+        # KESİN FİLTRE: İlk yarısı bitmiş (45 ile 50 dakika arası) veya 90+ uzatması bitmiş maçları tamamen ele!
+        if (45 < elapsed < 50) or (elapsed > 90 and elapsed >= (90 + extra + 4)):
+            continue
 
         devre = "1H" if elapsed <= 45 else "2H"
 
         if fixture_id in sent_matches and sent_matches[fixture_id] == devre:
             continue
 
-        # DAKİKA FİLTRESİ: İlk yarı 35'ten uzatmalara kadar, İkinci yarı 80'den 90+4'e kadar
-        is_first_half_critical = (35 <= elapsed <= (45 + 4))
-        is_second_half_critical = (80 <= elapsed <= (90 + 4))
+        # DAKİKA ARALIKLARI: İlk yarı 35'ten normal süre sonuna (45+uzatma), İkinci yarı 80'den maç sonuna
+        is_first_half_critical = (35 <= elapsed <= (45 + (extra if elapsed > 45 else 4)))
+        is_second_half_critical = (80 <= elapsed <= (90 + extra + 4 if elapsed > 90 else 90 + 4))
 
         if is_first_half_critical or is_second_half_critical:
             kritik_liste.append({'id': fixture_id, 'home': home, 'away': away, 'elapsed': elapsed, 'devre': devre, 'league': league_name, 's_home': s_home, 's_away': s_away})
         else:
             distance = (45 - elapsed) if elapsed <= 45 else (90 - elapsed)
-            if 0 <= abs(distance) <= 20:
+            if 0 <= abs(distance) <= 20 and elapsed < 45: # Sadece 1. devreye yakın yedekler
                 tum_canli_maclar.append({
                     'id': fixture_id, 'home': home, 'away': away, 
                     'elapsed': elapsed, 'devre': devre, 'league': league_name, 
@@ -168,7 +168,7 @@ def check_matches():
         baslik = "🔥 *KRİTİK ANLAR (35+ / 80+ Uzatmalar Dahil)*"
     elif tum_canli_maclar:
         target_list = tum_canli_maclar
-        baslik = "⏳ *DEVRE BİTİMİNE YAKIN MAÇLAR*"
+        baslik = "⏳ *DEVRE BİTİMİne YAKIN MAÇLAR*"
 
     islenmis_veriler = []
     for m in target_list:
