@@ -1,6 +1,8 @@
 import html
+import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -12,6 +14,8 @@ CHAT_ID = os.getenv("CHAT_ID", "").strip()
 
 API_BASE = "https://v3.football.api-sports.io"
 SENT_FILE = Path("sent_matches.txt")
+PENDING_FILE = Path("pending_snapshots.json")
+HISTORY_FILE = Path("corner_history.json")
 REQUEST_TIMEOUT = 20
 MAX_MATCHES_IN_MESSAGE = 3
 
@@ -26,13 +30,10 @@ def require_secrets():
         if not value
     ]
     if missing:
-        raise RuntimeError(
-            "Eksik GitHub Secrets: " + ", ".join(missing)
-        )
+        raise RuntimeError("Eksik GitHub Secrets: " + ", ".join(missing))
 
 
 def api_headers():
-    # API-Sports / API-Football doğrudan API anahtarı.
     return {"x-apisports-key": API_FOOTBALL_KEY}
 
 
@@ -51,6 +52,24 @@ def api_get(endpoint, params):
         raise RuntimeError(f"API-Football hatası: {errors}")
 
     return payload.get("response", [])
+
+
+def read_json(path, default):
+    if not path.exists():
+        return default
+    try:
+        with path.open("r", encoding="utf-8") as file:
+            return json.load(file)
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"{path} okunamadı, varsayılan veri kullanılacak: {exc}")
+        return default
+
+
+def write_json(path, data):
+    temp_path = path.with_suffix(path.suffix + ".tmp")
+    with temp_path.open("w", encoding="utf-8") as file:
+        json.dump(data, file, ensure_ascii=False, indent=2)
+    temp_path.replace(path)
 
 
 def load_sent_matches():
@@ -91,14 +110,11 @@ def send_telegram_message(message):
 
     if not result.get("ok"):
         raise RuntimeError(f"Telegram gönderim hatası: {result}")
-
     return True
 
 
 def is_valid_league(league_name):
     name = (league_name or "").casefold()
-
-    # Önce eleme: Örneğin "U19 Cup" yalnızca "Cup" içeriyor diye kabul edilmesin.
     banned_terms = [
         "u17", "u18", "u19", "u20", "u21", "u23",
         "youth", "reserve", "amateur", "regional",
@@ -112,35 +128,34 @@ def is_valid_league(league_name):
     if any(term in name for term in banned_terms):
         return False
 
-    allowed_terms = [
-        "championship", "segunda división", "serie b", "ligue 2",
-        "eerste divisie", "cup", "kupa", "copa", "coppa",
-        "pokal", "super cup", "supercup",
-    ]
-    if any(term in name for term in allowed_terms):
-        return True
-
+    # Eski filtre davranışı korunuyor.
     return True
 
 
 def to_int(value):
     if value is None:
-        return 0
+        return None
     if isinstance(value, (int, float)):
         return int(value)
     text = str(value).strip().replace("%", "").replace(",", ".")
     try:
         return int(float(text))
     except (TypeError, ValueError):
-        return 0
+        return None
 
 
-def get_match_stats(fixture_id, home_team_id, away_team_id):
-    rows = api_get("fixtures/statistics", {"fixture": fixture_id})
+def get_match_stats(fixture_id, home_team_id, away_team_id, first_half=False):
+    params = {"fixture": fixture_id}
+    if first_half:
+        params["half"] = "true"
+
+    rows = api_get("fixtures/statistics", params)
+    if not rows:
+        return None
 
     stats_by_team = {
-        home_team_id: {"shots": 0, "shots_on_target": 0, "corners": 0},
-        away_team_id: {"shots": 0, "shots_on_target": 0, "corners": 0},
+        home_team_id: {"shots": None, "shots_on_target": None, "corners": None},
+        away_team_id: {"shots": None, "shots_on_target": None, "corners": None},
     }
 
     for team_row in rows:
@@ -162,20 +177,21 @@ def get_match_stats(fixture_id, home_team_id, away_team_id):
     home = stats_by_team[home_team_id]
     away = stats_by_team[away_team_id]
 
-    total_shots = home["shots"] + away["shots"]
-    total_shots_on_target = (
-        home["shots_on_target"] + away["shots_on_target"]
-    )
-    total_corners = home["corners"] + away["corners"]
-
-    # İstatistik endpoint'i boş döndüyse bu maçı sıralamaya sokma.
-    if not rows:
+    # Corner verisi gerçekten yoksa sıfır varsayma; sonucu belirsiz bırak.
+    if home["corners"] is None or away["corners"] is None:
         return None
 
+    def sum_if_known(a, b):
+        if a is None or b is None:
+            return None
+        return a + b
+
     return {
-        "total_shots": total_shots,
-        "shots_on_target": total_shots_on_target,
-        "total_corners": total_corners,
+        "total_shots": sum_if_known(home["shots"], away["shots"]),
+        "shots_on_target": sum_if_known(
+            home["shots_on_target"], away["shots_on_target"]
+        ),
+        "total_corners": home["corners"] + away["corners"],
         "home_shots": home["shots"],
         "away_shots": away["shots"],
         "home_corners": home["corners"],
@@ -185,24 +201,20 @@ def get_match_stats(fixture_id, home_team_id, away_team_id):
 
 def get_phase(match):
     fixture = match.get("fixture") or {}
-    status = (fixture.get("status") or {}).get("short")
-    elapsed = fixture.get("status", {}).get("elapsed")
+    status_data = fixture.get("status") or {}
+    status = status_data.get("short")
+    elapsed = status_data.get("elapsed")
 
     if elapsed is None:
         return None
-
-    # HT / FT gibi durumlar bilerek kabul edilmiyor.
-    # 1H durumunda 45+ uzatma sürüyorsa maç hâlâ oynandığı için alınabilir.
     if status == "1H" and elapsed >= 35:
         return "1H"
-
     if status == "2H" and elapsed >= 80:
         return "2H"
-
     return None
 
 
-def format_minute(status, elapsed, extra):
+def format_minute(elapsed, extra):
     minute = str(elapsed)
     if extra:
         minute += f"+{extra}"
@@ -218,35 +230,24 @@ def build_message(matches):
 
     for index, item in enumerate(matches, start=1):
         match = item["match"]
-        fixture = match.get("fixture") or {}
-        status_data = fixture.get("status") or {}
-        elapsed = status_data.get("elapsed")
-        extra = status_data.get("extra") or 0
-        minute = format_minute(status_data.get("short"), elapsed, extra)
+        status_data = (match.get("fixture") or {}).get("status") or {}
+        minute = format_minute(status_data.get("elapsed"), status_data.get("extra") or 0)
 
         home = html.escape(match["teams"]["home"]["name"])
         away = html.escape(match["teams"]["away"]["name"])
         league = html.escape(match["league"]["name"])
         goals = match.get("goals") or {}
-        home_goals = goals.get("home")
-        away_goals = goals.get("away")
-
         stats = item["stats"]
         phase_text = "İLK YARI" if item["phase"] == "1H" else "İKİNCİ YARI"
 
         lines.extend([
-            f"<b>{index}. {home} {home_goals} - {away_goals} {away}</b>",
+            f"<b>{index}. {home} {goals.get('home')} - {goals.get('away')} {away}</b>",
             f"🏆 {league}",
             f"⏱️ {phase_text} · {minute}. dakika",
-            (
-                f"🚩 <b>Korner: {stats['total_corners']}</b> "
-                f"({stats['home_corners']} - {stats['away_corners']})"
-            ),
-            (
-                f"🎯 <b>Şut: {stats['total_shots']}</b> "
-                f"({stats['home_shots']} - {stats['away_shots']})"
-            ),
-            f"🥅 İsabetli şut: {stats['shots_on_target']}",
+            f"🚩 <b>Korner: {stats['total_corners']}</b> "
+            f"({stats['home_corners']} - {stats['away_corners']})",
+            f"🎯 <b>Şut: {stats['total_shots'] if stats['total_shots'] is not None else 'Veri yok'}</b>",
+            f"🥅 İsabetli şut: {stats['shots_on_target'] if stats['shots_on_target'] is not None else 'Veri yok'}",
             "",
         ])
 
@@ -256,11 +257,156 @@ def build_message(matches):
     return "\n".join(lines)
 
 
+def create_snapshot(item):
+    match = item["match"]
+    fixture = match.get("fixture") or {}
+    status = fixture.get("status") or {}
+    teams = match.get("teams") or {}
+    goals = match.get("goals") or {}
+    return {
+        "fixture_id": str(fixture.get("id")),
+        "phase": item["phase"],
+        "minute": status.get("elapsed"),
+        "extra": status.get("extra") or 0,
+        "home_team_id": (teams.get("home") or {}).get("id"),
+        "away_team_id": (teams.get("away") or {}).get("id"),
+        "home": (teams.get("home") or {}).get("name", "Ev sahibi"),
+        "away": (teams.get("away") or {}).get("name", "Deplasman"),
+        "league": (match.get("league") or {}).get("name", ""),
+        "score": f"{goals.get('home')}-{goals.get('away')}",
+        "snapshot_corners": item["stats"]["total_corners"],
+        "snapshot_shots": item["stats"]["total_shots"],
+        "snapshot_shots_on_target": item["stats"]["shots_on_target"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def is_first_half_finished(status):
+    return status in {"HT", "2H", "ET", "P", "FT", "AET", "PEN"}
+
+
+def is_match_finished(status):
+    return status in {"FT", "AET", "PEN", "AWD", "WO"}
+
+
+def fetch_fixture_status(fixture_id):
+    rows = api_get("fixtures", {"id": fixture_id})
+    if not rows:
+        return None
+    return rows[0]
+
+
+def finalize_pending_snapshots():
+    pending = read_json(PENDING_FILE, [])
+    history = read_json(HISTORY_FILE, [])
+    if not pending:
+        return
+
+    still_pending = []
+    completed_count = 0
+
+    for snapshot in pending:
+        fixture_id = snapshot["fixture_id"]
+        phase = snapshot["phase"]
+
+        try:
+            match_rows = api_get("fixtures", {"id": fixture_id})
+            if not match_rows:
+                still_pending.append(snapshot)
+                continue
+
+            match = match_rows[0]
+            status = ((match.get("fixture") or {}).get("status") or {}).get("short")
+
+            # İlk yarı önerisini devre bittiğinde; ikinci yarı önerisini maç bitince ölç.
+            if phase == "1H" and not is_first_half_finished(status):
+                still_pending.append(snapshot)
+                continue
+            if phase == "2H" and not is_match_finished(status):
+                still_pending.append(snapshot)
+                continue
+
+            stats = get_match_stats(
+                fixture_id,
+                snapshot["home_team_id"],
+                snapshot["away_team_id"],
+                first_half=(phase == "1H"),
+            )
+
+            if stats is None:
+                result_status = "veri_yok"
+                corners_after = None
+                success = None
+            else:
+                corners_after = max(
+                    0, stats["total_corners"] - snapshot["snapshot_corners"]
+                )
+                success = corners_after >= 1
+                result_status = "ölçüldü"
+
+            history.append({
+                **snapshot,
+                "result_status": result_status,
+                "corners_after_alert": corners_after,
+                "at_least_one_corner": success,
+                "final_corners": stats["total_corners"] if stats else None,
+                "completed_status": status,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            })
+            completed_count += 1
+            print(
+                f"Öneri sonucu: {fixture_id} / {phase} / "
+                f"sonraki korner: {corners_after if corners_after is not None else 'veri yok'}"
+            )
+
+        except (requests.RequestException, RuntimeError, KeyError) as exc:
+            print(f"{fixture_id} öneri sonucu kontrol edilemedi: {exc}")
+            still_pending.append(snapshot)
+
+    write_json(PENDING_FILE, still_pending)
+    write_json(HISTORY_FILE, history)
+
+    if completed_count:
+        print(f"Sonucu kaydedilen öneri sayısı: {completed_count}")
+
+
+def print_history_summary():
+    history = read_json(HISTORY_FILE, [])
+    measured = [
+        item for item in history
+        if item.get("result_status") == "ölçüldü"
+        and item.get("at_least_one_corner") is not None
+    ]
+    if not measured:
+        print("Henüz ölçülebilir öneri geçmişi yok.")
+        return
+
+    successes = sum(1 for item in measured if item["at_least_one_corner"])
+    rate = successes / len(measured) * 100
+    print(
+        f"ÖNERİ İSTATİSTİĞİ: {successes}/{len(measured)} öneriden sonra "
+        f"en az 1 korner geldi. Başarı oranı: %{rate:.1f}"
+    )
+
+    for phase, label in (("1H", "İlk yarı"), ("2H", "İkinci yarı")):
+        group = [item for item in measured if item.get("phase") == phase]
+        if group:
+            wins = sum(1 for item in group if item["at_least_one_corner"])
+            print(f"{label}: {wins}/{len(group)} = %{wins / len(group) * 100:.1f}")
+
+
 def check_matches():
     require_secrets()
 
+    # Önce önceki bildirimlerin sonuçlarını kontrol et.
+    finalize_pending_snapshots()
+
     live_matches = api_get("fixtures", {"live": "all"})
     sent = load_sent_matches()
+    pending = read_json(PENDING_FILE, [])
+    pending_keys = {
+        (item.get("fixture_id"), item.get("phase")) for item in pending
+    }
     candidates = []
 
     for match in live_matches:
@@ -275,6 +421,8 @@ def check_matches():
         fixture_id = str((match.get("fixture") or {}).get("id"))
         if not fixture_id or sent.get(fixture_id) == phase:
             continue
+        if (fixture_id, phase) in pending_keys:
+            continue
 
         teams = match.get("teams") or {}
         home_team_id = (teams.get("home") or {}).get("id")
@@ -283,51 +431,44 @@ def check_matches():
             continue
 
         try:
-            stats = get_match_stats(
-                fixture_id, home_team_id, away_team_id
-            )
-        except requests.RequestException as exc:
+            stats = get_match_stats(fixture_id, home_team_id, away_team_id)
+        except (requests.RequestException, RuntimeError) as exc:
             print(f"{fixture_id} istatistik isteği başarısız: {exc}")
-            continue
-        except RuntimeError as exc:
-            print(f"{fixture_id} istatistik hatası: {exc}")
             continue
 
         if stats is None:
+            print(f"{fixture_id}: korner istatistiği bulunamadı, atlandı.")
             continue
 
-        candidates.append({
-            "match": match,
-            "phase": phase,
-            "stats": stats,
-        })
+        candidates.append({"match": match, "phase": phase, "stats": stats})
 
-    # Önce toplam korner, eşitse toplam şut, sonra isabetli şut.
     candidates.sort(
         key=lambda item: (
             item["stats"]["total_corners"],
-            item["stats"]["total_shots"],
-            item["stats"]["shots_on_target"],
+            item["stats"]["total_shots"] or 0,
+            item["stats"]["shots_on_target"] or 0,
         ),
         reverse=True,
     )
 
     selected = candidates[:MAX_MATCHES_IN_MESSAGE]
-
     if not selected:
         print("Bu kontrolde bildirilecek uygun maç bulunamadı.")
+        print_history_summary()
         return
 
-    message = build_message(selected)
-    send_telegram_message(message)
+    send_telegram_message(build_message(selected))
 
-    # Yalnızca Telegram gönderimi başarılı olursa maçları gönderildi olarak kaydet.
+    # Telegram başarılı olduktan sonra bildirim snapshot'larını kalıcı kaydet.
     for item in selected:
-        fixture_id = str(item["match"]["fixture"]["id"])
-        sent[fixture_id] = item["phase"]
+        snapshot = create_snapshot(item)
+        pending.append(snapshot)
+        sent[snapshot["fixture_id"]] = item["phase"]
 
     save_sent_matches(sent)
+    write_json(PENDING_FILE, pending)
     print(f"Telegram bildirimi gönderildi. Maç sayısı: {len(selected)}")
+    print_history_summary()
 
 
 if __name__ == "__main__":
